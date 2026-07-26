@@ -1,84 +1,156 @@
-# AgentForge Backend — Starter (Person 1: Orchestration)
+# AgentForge Backend
 
-## What's in here right now
-- `llm_client.py` — the ONE function that talks to Groq. Every agent uses it.
-- `agents/requirement_analysis.py` — Stage 1: understands what the user wants
-- `agents/agent_planner.py` — Stage 2: picks which agents are needed
-- `main.py` — the API server that ties it together
+An AI-powered multi-agent system generator. Describe what you need in
+plain English, get back a designed architecture, a workflow diagram,
+system prompts, tool recommendations, and a real downloadable project.
 
-## Step-by-step: get this running (30-45 minutes)
+## Current status
 
-### 1. Get your free API key
-Go to https://console.groq.com → sign up (no credit card) → create an API key.
+All 6 core pipeline stages are built and tested, plus a validation
+layer, a multi-turn clarification flow for vague inputs, and a formal
+LLM routing table. This README reflects the project as it stands now —
+see "Project history" at the bottom if you want the original day-1
+starter instructions.
 
-### 2. Set up your environment
+## Folder structure
+
+```
+agentforge-backend/
+├── .env / .env.example      # API keys (never commit the real .env)
+├── requirements.txt
+├── main.py                  # API server, orchestrates every stage
+├── llm_client.py            # Groq + Gemini clients, automatic failover
+│
+├── router/
+│   └── llm_router.py        # explicit stage -> provider routing table
+│
+├── schemas/
+│   └── project_context.py   # ProjectContext: the shared result object
+│
+├── validators/
+│   └── workflow_validator.py # structural validation (deterministic, no LLM)
+│
+└── agents/
+    ├── requirement_analysis.py   # Stage 1: business understanding
+    ├── clarification_agent.py    # asks follow-up questions if confidence is low
+    ├── agent_planner.py          # Stage 2: picks agents from the library
+    ├── workflow_designer.py      # Stage 3: builds the node/edge graph
+    ├── prompt_generator.py       # Stage 4: writes each agent's system prompt
+    ├── tool_selector.py          # Stage 5: recommends free-tier tools/stack
+    └── code_generator.py         # Stage 6: writes + self-heals real code
+```
+
+## How the pipeline works
+
+1. **Business Understanding** (Stage 1) extracts domain, goal, tasks,
+   constraints, assumptions, and a confidence score from the user's
+   plain-English input.
+2. **Confidence check** — if confidence is `"low"`, the pipeline stops
+   and the **Clarification Agent** generates 2-4 targeted follow-up
+   questions instead of guessing. The frontend collects answers and
+   calls `/generate/continue`, which merges them into a richer input
+   and re-runs the pipeline.
+3. If confidence is fine, the full pipeline runs:
+   **Agent Planner** (Stage 2) → **Workflow Designer** (Stage 3) →
+   **Validation** (deterministic structural check, not an LLM call) →
+   **Prompt Generator** (Stage 4) → **Tool Selector** (Stage 5) →
+   **Code Generator** (Stage 6, with self-healing: broken agent files
+   get auto-repaired or replaced with a guaranteed-valid stub).
+4. Everything is assembled into one `ProjectContext` object and
+   returned as JSON.
+
+## LLM routing
+
+Each stage uses whichever provider fits best, with automatic failover
+if that provider errors out (see `router/llm_router.py` for the table
+and `llm_client.py` for the failover logic):
+
+| Stage | Provider | Why |
+|---|---|---|
+| Business Understanding, Agent Planner, Tool Selector | Groq | fast, structured reasoning |
+| Workflow Designer | Groq | fast, structured reasoning |
+| Prompt Generator, Code Generator | Gemini (falls back to Groq) | stronger generation quality |
+
+## API endpoints
+
+- `POST /generate` — `{"user_input": "..."}` → runs Stage 1; either
+  returns `{"status": "needs_clarification", "questions": [...]}` or
+  runs the full pipeline and returns `{"status": "complete", ...}`.
+- `POST /generate/continue` — `{"user_input": "...", "answers": [{"question": "...", "answer": "..."}]}`
+  → merges answers into the input and runs the full pipeline.
+- `GET /download-project?user_input=...` — runs the full pipeline
+  directly (skips clarification) and returns a downloadable `.zip` of
+  the generated project.
+
+## Setup (5-10 minutes)
+
+### 1. Get your free API keys
+- Groq: https://console.groq.com (no credit card)
+- Gemini: https://aistudio.google.com (no credit card)
+
+### 2. Environment
 ```bash
-cd agentforge-backend
 python -m venv venv
-source venv/bin/activate        # on Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
-Now open `.env` and paste your real Groq key in place of `your_groq_key_here`.
+Paste both real keys into `.env`.
 
-### 3. Test your key works
+### 3. Sanity-check both providers
 ```bash
 python llm_client.py
 ```
-You should see `SUCCESS! Your Groq key works.` printed. If you get an error,
-check that your key was pasted correctly into `.env` with no extra spaces.
+Should print `SUCCESS!` for both Groq and Gemini.
 
-### 4. Test Stage 1 alone
+### 4. Test individual stages
+Run any agent file directly with `-m`, from this root folder:
 ```bash
-cd agents
-python requirement_analysis.py
-cd ..
+python -m agents.requirement_analysis
+python -m agents.clarification_agent
+python -m agents.agent_planner
+python -m agents.workflow_designer
+python -m validators.workflow_validator
+python -m agents.prompt_generator
+python -m agents.tool_selector
+python -m agents.code_generator
 ```
-This sends "Build me an AI customer support system" through Stage 1 and
-prints the structured JSON it gets back. This is the moment you'll actually
-understand what "an agent" means — it's just: prompt in, structured data out.
 
-### 5. Test Stage 1 + Stage 2 together
+### 5. Run the API
 ```bash
-cd agents
-python agent_planner.py
-cd ..
+python -m uvicorn main:app --reload
 ```
-This chains both stages — you'll see the requirement JSON, then the list
-of agents chosen for it.
-
-### 6. Run it as a real API
-```bash
-uvicorn main:app --reload
-```
-Open http://127.0.0.1:8000/docs in your browser. Click on `POST /generate`,
-click "Try it out", type a request like `{"user_input": "Build me an AI
-recruitment platform"}`, and hit Execute. You'll see the full JSON response
-— this is exactly what Person 3's frontend will receive.
-
-## What YOU build next (in this order)
-1. **Test and tighten Stage 1 and 2** — try 5-6 different user inputs, make
-   sure the JSON always comes back clean. If it breaks on something, adjust
-   the SYSTEM_PROMPT wording until it's reliable. This is 80% of "AI
-   engineering" in practice — prompt, test, adjust, repeat.
-2. **Add Stage 3: Workflow Designer** — new file `agents/workflow_designer.py`,
-   same pattern as agent_planner.py: takes the agent list, outputs an
-   ordered list of edges (which agent talks to which, in what order).
-3. **Share the JSON output shape with Person 3 immediately** — don't wait
-   until it's "done". They need to know the exact field names today so
-   they can build the UI against it in parallel.
-4. **Hand off to Person 2** — once Stage 1-3 are stable, Person 2 builds
-   Stage 4 (Prompt Generator) and Stage 5-6 (Tool Selector, Code Generator)
-   on top of your output, in the same `agents/` folder.
+Open http://127.0.0.1:8000/docs to test every endpoint interactively.
 
 ## Common issues
-- **"JSON did not return valid JSON" error** — the model occasionally
-  breaks format. The `response_format={"type": "json_object"}` in
-  `llm_client.py` mostly prevents this, but if it still happens, lower
-  `temperature` further or simplify the requested JSON shape.
-- **Rate limit errors** — Groq's free tier is generous but not infinite.
-  If you hit it while testing, wait a minute or switch to your Gemini
-  backup key temporarily.
-- **CORS errors from the frontend** — already handled in `main.py` via
-  `CORSMiddleware`, but if you still see them, double check the frontend
-  is calling `http://127.0.0.1:8000/generate` exactly.
+
+- **`ModuleNotFoundError` when running a file inside `agents/` directly**
+  — always run with `python -m agents.<filename>` from this root
+  folder, never `python agents/<filename>.py` or from inside the
+  folder. Every internal import uses the full `agents.` / `router.` /
+  `schemas.` / `validators.` path to match this.
+- **`Fatal error in launcher` on `uvicorn`** — use
+  `python -m uvicorn main:app --reload` instead of the bare `uvicorn`
+  command; this avoids a broken Windows launcher shortcut.
+- **Gemini 404 "model no longer available"** — Google retires model
+  versions faster than expected sometimes; check `GEMINI_MODEL` in
+  `llm_client.py` is set to a currently supported model name.
+- **Rate limit errors** — both providers have generous but not
+  infinite free tiers. The Gemini→Groq failover in `llm_client.py`
+  handles this automatically for most stages.
+- **CORS errors from the frontend** — already handled via
+  `CORSMiddleware` in `main.py`; double-check the frontend is calling
+  `http://127.0.0.1:8000` exactly.
+
+## What's intentionally not built (and why)
+
+A few production-grade ideas were considered and deliberately deferred
+to keep this shippable within a hackathon timeline: a separate
+Capability Planner stage, an Agent Architect stage distinct from Agent
+Planner, modular per-target code generators (separate Backend/
+Frontend/Database/Docker generators instead of one Code Generator),
+a full documentation generator, and a LangGraph/async/dependency-
+injection rewrite of the whole backend. These are good v2 roadmap
+items, not gaps — see the pitch deck for how they'd extend this
+architecture.
+
