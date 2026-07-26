@@ -1,0 +1,118 @@
+"""
+This is the ONE place that talks to LLMs.
+Every agent (Requirement Analysis, Agent Planner, etc.) calls the function
+below instead of calling a provider's SDK directly. That way, if you ever
+need to switch providers or add a fallback, you change it in ONE place.
+
+Two providers are wired up:
+- Groq  -- fast + very generous free tier, used as the DEFAULT for most
+           agents (structured reasoning: analysis, planning, workflow).
+- Gemini -- used specifically for CODE GENERATION (Stage 6), since it
+            tends to produce cleaner, more idiomatic code than small
+            fast models. Falls back to Groq automatically if Gemini
+            errors out or hits a rate limit, so a demo never hard-fails
+            because of one provider having a bad moment.
+
+Both clients are created lazily (only when first actually used), so
+importing this file never crashes just because one of the two keys
+isn't set yet -- useful while your team is still setting things up.
+"""
+
+import os
+import json
+from dotenv import load_dotenv
+from groq import Groq
+from google import genai
+from google.genai import types as genai_types
+
+load_dotenv()  # reads the .env file and loads GROQ_API_KEY / GEMINI_API_KEY
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GEMINI_MODEL = "gemini-3.5-flash"
+
+_groq_client = None
+_gemini_client = None
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    return _groq_client
+
+
+def _get_gemini_client() -> "genai.Client":
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    return _gemini_client
+
+
+def _call_groq_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
+    response = _get_groq_client().chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=temperature,
+        response_format={"type": "json_object"},
+    )
+    raw_text = response.choices[0].message.content
+    return json.loads(raw_text)
+
+
+def _call_gemini_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
+    response = _get_gemini_client().models.generate_content(
+        model=GEMINI_MODEL,
+        contents=user_prompt,
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=temperature,
+            response_mime_type="application/json",
+        ),
+    )
+    return json.loads(response.text)
+
+
+def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", temperature: float = 0.3) -> dict:
+    """
+    Sends a system prompt + user prompt to an LLM and asks it to reply
+    with ONLY valid JSON. Returns that JSON as a Python dict.
+
+    provider: "groq" (default, fast + reliable for most agents) or
+              "gemini" (better for code generation quality).
+
+    If provider="gemini" fails for any reason (missing key, rate limit,
+    bad JSON), this automatically retries on Groq instead of crashing
+    the whole pipeline -- important for a live demo.
+    """
+    if provider == "gemini":
+        try:
+            return _call_gemini_json(system_prompt, user_prompt, temperature)
+        except Exception as gemini_error:
+            print(f"[warning] Gemini failed ({gemini_error}), falling back to Groq...")
+            return _call_groq_json(system_prompt, user_prompt, temperature)
+
+    try:
+        return _call_groq_json(system_prompt, user_prompt, temperature)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"LLM did not return valid JSON: {e}")
+
+
+if __name__ == "__main__":
+    result = call_llm_json(
+        system_prompt="You are a helpful assistant. Always reply in JSON.",
+        user_prompt='Reply with JSON like {"status": "ok", "message": "..."} confirming you received this.',
+        provider="groq",
+    )
+    print("SUCCESS! Your Groq key works. Response:")
+    print(result)
+
+    result2 = call_llm_json(
+        system_prompt="You are a helpful assistant. Always reply in JSON.",
+        user_prompt='Reply with JSON like {"status": "ok", "message": "..."} confirming you received this.',
+        provider="gemini",
+    )
+    print("\nSUCCESS! Your Gemini key works (or fell back to Groq cleanly). Response:")
+    print(result2)
