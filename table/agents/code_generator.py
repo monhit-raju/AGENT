@@ -283,10 +283,103 @@ def run_pipeline(request: RunRequest):
 '''
 
 
+# Embedded verbatim so every generated project is self-contained and
+# doesn't depend on files outside its own folder. This was a real bug
+# found during testing: generated agent files import `llm_client`, but
+# nothing was actually writing that file into the generated project --
+# it would download, but never run. This constant is the fix.
+GENERATED_LLM_CLIENT = '''"""
+The ONE place this generated project talks to LLMs. Every agent module
+imports call_llm_json from here instead of calling a provider directly.
+
+Uses Groq by default, with automatic fallback to Gemini if the Groq
+call fails for any reason (missing key, rate limit, bad response) --
+same resilience pattern as the tool that generated this project.
+"""
+
+import os
+import json
+from dotenv import load_dotenv
+from groq import Groq
+from google import genai
+from google.genai import types as genai_types
+
+load_dotenv()
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GEMINI_MODEL = "gemini-3.5-flash"
+
+_groq_client = None
+_gemini_client = None
+
+
+def _get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    return _groq_client
+
+
+def _get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    return _gemini_client
+
+
+def _ensure_json_keyword(system_prompt, user_prompt):
+    combined = f"{system_prompt} {user_prompt}".lower()
+    if "json" not in combined:
+        return f"{user_prompt}\\n\\nRespond only with valid JSON."
+    return user_prompt
+
+
+def _call_groq_json(system_prompt, user_prompt, temperature):
+    safe_user_prompt = _ensure_json_keyword(system_prompt, user_prompt)
+    response = _get_groq_client().chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": safe_user_prompt},
+        ],
+        temperature=temperature,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(response.choices[0].message.content)
+
+
+def _call_gemini_json(system_prompt, user_prompt, temperature):
+    response = _get_gemini_client().models.generate_content(
+        model=GEMINI_MODEL,
+        contents=user_prompt,
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=temperature,
+            response_mime_type="application/json",
+        ),
+    )
+    return json.loads(response.text)
+
+
+def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", temperature: float = 0.3) -> dict:
+    if provider == "gemini":
+        try:
+            return _call_gemini_json(system_prompt, user_prompt, temperature)
+        except Exception as e:
+            print(f"[warning] Gemini failed ({e}), falling back to Groq...")
+            return _call_groq_json(system_prompt, user_prompt, temperature)
+    try:
+        return _call_groq_json(system_prompt, user_prompt, temperature)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"LLM did not return valid JSON: {e}")
+'''
+
+
 def _build_static_files(requirement, agent_plan, workflow, tools) -> dict:
     return {
         "README.md": _build_readme(requirement, agent_plan, workflow, tools),
         "main.py": _build_main_py(agent_plan),
+        "llm_client.py": GENERATED_LLM_CLIENT,
         "requirements.txt": "fastapi\nuvicorn\ngroq\ngoogle-genai\npython-dotenv\npydantic\n",
         ".env.example": "GROQ_API_KEY=your_groq_key_here\nGEMINI_API_KEY=your_gemini_key_here\n",
     }
