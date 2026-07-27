@@ -38,6 +38,13 @@ Ground rules:
   the tool.
 - Recommend real, currently-existing tools/APIs/libraries. Do not invent
   fictional products.
+- For EVERY tool, say whether it needs its own API key/credentials
+  beyond the LLM keys (Groq/Gemini are already handled separately --
+  never list those here). Example: a "Notification Agent" that sends
+  real emails needs its own Gmail API or SMTP credentials, not just an
+  LLM call. If a tool is just a Python library with no external
+  account needed (e.g. SQLite, Tesseract OCR running locally), mark
+  requires_api_key as false.
 
 Always respond with ONLY a JSON object in exactly this shape:
 {
@@ -56,7 +63,11 @@ Always respond with ONLY a JSON object in exactly this shape:
           "name": "specific tool/API/library name",
           "purpose": "what this agent uses it for, specific to this system",
           "reason": "why this tool over alternatives, one sentence",
-          "free_tier_available": true
+          "free_tier_available": true,
+          "requires_api_key": true,
+          "env_var_name": "SUGGESTED_ENV_VAR_NAME or null if requires_api_key is false",
+          "setup_url": "real URL where a developer signs up for this / gets credentials, or null",
+          "pip_package": "the pip package name needed to use this in Python, or null if none"
         }
       ]
     }
@@ -79,9 +90,9 @@ def select_tools(requirement_json: dict, agent_plan_json: dict, workflow_json: d
 if __name__ == "__main__":
     # Manual test -- run from the AGENT root folder:
     #   python -m agents.tool_selector
-    from table.agents.requirement_analysis import analyze_requirement
-    from table.agents.agent_planner import plan_agents
-    from table.agents.workflow_designer import design_workflow
+    from agents.requirement_analysis import analyze_requirement
+    from agents.agent_planner import plan_agents
+    from agents.workflow_designer import design_workflow
     import json
 
     requirement = analyze_requirement("Build me an AI recruitment platform")
