@@ -1,45 +1,97 @@
-﻿const STAGES = [
-  "Business Understanding",
-  "Agent Planner",
-  "Workflow Designer",
-  "Validation",
-  "Prompt Generator",
-  "Tool Selector",
-  "Code Generator",
+const STAGES = [
+  { id: "business_understanding", label: "Business Understanding", desc: "Extract spec & confidence" },
+  { id: "agent_planner", label: "Agent Planner", desc: "Plan multi-agent roles" },
+  { id: "workflow_designer", label: "Workflow Designer", desc: "Design connection edges" },
+  { id: "workflow_validator", label: "Validation Check", desc: "Verify agent integrity" },
+  { id: "prompt_generator", label: "Prompt Generator", desc: "Formulate system prompts" },
+  { id: "tool_selector", label: "Tool Selector", desc: "Match developer tools" },
+  { id: "code_generator", label: "Code Generator", desc: "Draft codebase files" },
 ];
 
 export default function PipelineTrace({ activeIndex, doneCount }) {
   return (
-    <section className="overflow-hidden rounded-[2rem] border border-slate-800/70 bg-slate-950/90 p-6 shadow-[0_20px_90px_-40px_rgba(15,23,42,0.8)]">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <section className="glass-panel overflow-hidden rounded-3xl p-6 shadow-xl">
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.32em] text-sky-400/80">Pipeline progress</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Generation flow</h2>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-sky-400">Execution Flow</span>
+          <h2 className="font-display text-lg font-bold text-white">Pipeline Synthesis Trace</h2>
         </div>
-        <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-sm text-slate-300">
-          {doneCount}/{STAGES.length} complete
-        </span>
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+          <span className="font-semibold text-sky-400">{doneCount}</span>
+          <span className="text-slate-600">/</span>
+          <span>{STAGES.length} Complete</span>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {STAGES.map((stage, index) => {
-          const isDone = index < doneCount;
-          const isActive = index === activeIndex;
+      <div className="relative">
+        {/* Connection line overlay */}
+        <div className="absolute left-[21px] top-4 bottom-4 w-0.5 bg-slate-800" />
+        
+        <div className="space-y-4 relative z-10">
+          {STAGES.map((stage, index) => {
+            const isDone = index < doneCount;
+            const isActive = index === activeIndex;
+            const isPending = !isDone && !isActive;
 
-          return (
-            <div
-              key={stage}
-              className={`rounded-[1.5rem] border px-4 py-4 transition ${isDone ? "border-emerald-500/20 bg-emerald-500/10" : isActive ? "border-sky-500/20 bg-sky-500/10" : "border-slate-800 bg-slate-900/80"}`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white">{stage}</p>
-                <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase ${isDone ? "bg-emerald-400/15 text-emerald-200" : isActive ? "bg-sky-400/15 text-sky-200" : "bg-slate-800 text-slate-400"}`}>
-                  {isDone ? "Done" : isActive ? "Running" : "Pending"}
-                </span>
+            return (
+              <div
+                key={stage.id}
+                className={`flex items-start gap-4 rounded-2xl p-3 transition-all duration-300 ${
+                  isActive
+                    ? "bg-sky-500/5 border border-sky-500/20 shadow-[0_0_15px_-5px_rgba(56,189,248,0.15)]"
+                    : isDone
+                    ? "bg-slate-900/10 border border-slate-900"
+                    : "border border-transparent"
+                }`}
+              >
+                {/* Stepper Node */}
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all duration-300">
+                  {isDone ? (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-[0_0_10px_-2px_rgba(52,211,153,0.3)]">
+                      <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  ) : isActive ? (
+                    <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/50 text-sky-400 shadow-[0_0_15px_-2px_rgba(56,189,248,0.4)] animate-pulse">
+                      <svg className="h-4.5 w-4.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 border border-slate-800 text-slate-600 font-mono text-xs">
+                      {index + 1}
+                    </div>
+                  )}
+                </div>
+
+                {/* Stage Info */}
+                <div className="flex-1 space-y-0.5 pt-0.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className={`text-sm font-semibold transition-colors duration-200 ${isActive ? "text-sky-300" : isDone ? "text-slate-200" : "text-slate-500"}`}>
+                      {stage.label}
+                    </p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                        isDone
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : isActive
+                          ? "bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                          : "bg-slate-950 text-slate-600 border border-slate-900"
+                      }`}
+                    >
+                      {isDone ? "Done" : isActive ? "Active" : "Pending"}
+                    </span>
+                  </div>
+                  <p className={`text-xs transition-colors duration-200 ${isActive ? "text-slate-300" : isDone ? "text-slate-400" : "text-slate-600"}`}>
+                    {stage.desc}
+                  </p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </section>
   );

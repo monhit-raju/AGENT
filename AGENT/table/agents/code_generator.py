@@ -313,9 +313,14 @@ def _build_main_py(agent_plan: dict) -> str:
     agent_ids = [a.get("id") for a in agents if a.get("id")]
 
     imports = "\n".join(f"from agents.{aid} import run as run_{aid}" for aid in agent_ids)
-    chain_calls = "\n    ".join(
-        f'result = run_{aid}(result)  # {aid}' for aid in agent_ids
-    )
+    
+    chain_calls_list = []
+    for aid in agent_ids:
+        chain_calls_list.append(f'print(f"[AGENT_START] {aid} | Input: {{json.dumps(result)}}")')
+        chain_calls_list.append(f'result = run_{aid}(result)')
+        chain_calls_list.append(f'print(f"[AGENT_END] {aid} | Output: {{json.dumps(result)}}")')
+    
+    chain_calls = "\n    ".join(chain_calls_list)
 
     return f'''"""
 Auto-generated entrypoint for this multi-agent system.
@@ -323,6 +328,7 @@ Runs the agents below in sequence, each one receiving the previous
 agent's output as its input.
 """
 
+import json
 from fastapi import FastAPI
 from pydantic import BaseModel
 
