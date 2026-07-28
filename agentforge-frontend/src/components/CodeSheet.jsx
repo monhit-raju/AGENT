@@ -10,12 +10,17 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
   const [copied, setCopied] = useState(false);
   const [wordWrap, setWordWrap] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [viewMode, setViewMode] = useState("code"); // "code" | "preview"
 
   useEffect(() => {
     if (!selected && fileNames.length > 0) {
       setSelected(fileNames[0]);
     }
-  }, [fileNames, selected]);
+  }, [fileNames.length, selected]);
+
+  useEffect(() => {
+    setViewMode("code");
+  }, [selected]);
 
   const isValid = validationReport?.is_valid;
   const activeContent = selected ? files[selected] : "";
@@ -158,7 +163,34 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
               </div>
 
               {/* Preferences */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {selected && selected.endsWith(".html") && (
+                  <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 mr-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("code")}
+                      className={`rounded px-2.5 py-1 text-[9px] font-mono font-bold uppercase transition-all duration-150 ${
+                        viewMode === "code" 
+                          ? "bg-sky-500 text-slate-950 shadow" 
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("preview")}
+                      className={`rounded px-2.5 py-1 text-[9px] font-mono font-bold uppercase transition-all duration-150 ${
+                        viewMode === "preview" 
+                          ? "bg-sky-500 text-slate-950 shadow" 
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setWordWrap(!wordWrap)}
@@ -192,32 +224,41 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
               </div>
             </div>
 
-            {/* Monaco Component */}
+            {/* Monaco Component or Live Preview Iframe */}
             <div className="flex-1 min-h-[360px] max-h-[460px] overflow-hidden select-text bg-slate-950">
               {selected ? (
-                <Editor
-                  height="360px"
-                  theme="vs-dark"
-                  language={
-                    selected.endsWith(".py") ? "python" : 
-                    selected.endsWith(".json") ? "json" : 
-                    selected.endsWith(".txt") ? "plaintext" : 
-                    selected.endsWith(".md") ? "markdown" : "plaintext"
-                  }
-                  value={activeContent}
-                  onChange={handleEditorChange}
-                  options={{
-                    fontSize: 12,
-                    fontFamily: "IBM Plex Mono, monospace",
-                    minimap: { enabled: false },
-                    wordWrap: wordWrap ? "on" : "off",
-                    lineNumbers: "on",
-                    scrollbar: { vertical: "visible", horizontal: "visible" },
-                    padding: { top: 12, bottom: 12 },
-                    readOnly: false,
-                    automaticLayout: true
-                  }}
-                />
+                viewMode === "preview" && selected.endsWith(".html") ? (
+                  <iframe
+                    srcDoc={activeContent}
+                    sandbox="allow-scripts allow-modals allow-same-origin"
+                    className="w-full h-[360px] border-0 bg-slate-900 rounded-b-xl"
+                  />
+                ) : (
+                  <Editor
+                    height="360px"
+                    theme="vs-dark"
+                    language={
+                      selected.endsWith(".py") ? "python" : 
+                      selected.endsWith(".json") ? "json" : 
+                      selected.endsWith(".txt") ? "plaintext" : 
+                      selected.endsWith(".md") ? "markdown" : 
+                      selected.endsWith(".html") ? "html" : "plaintext"
+                    }
+                    value={activeContent}
+                    onChange={handleEditorChange}
+                    options={{
+                      fontSize: 12,
+                      fontFamily: "IBM Plex Mono, monospace",
+                      minimap: { enabled: false },
+                      wordWrap: wordWrap ? "on" : "off",
+                      lineNumbers: "on",
+                      scrollbar: { vertical: "visible", horizontal: "visible" },
+                      padding: { top: 12, bottom: 12 },
+                      readOnly: false,
+                      automaticLayout: true
+                    }}
+                  />
+                )
               ) : (
                 <div className="text-slate-600 italic select-none p-4">No file selected.</div>
               )}

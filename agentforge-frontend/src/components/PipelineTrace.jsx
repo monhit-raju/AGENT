@@ -6,6 +6,7 @@ const STAGES = [
   { id: "prompt_generator", label: "Prompt Generator", desc: "Formulate system prompts" },
   { id: "tool_selector", label: "Tool Selector", desc: "Match developer tools" },
   { id: "code_generator", label: "Code Generator", desc: "Draft codebase files" },
+  { id: "ui_generator", label: "UI Designer", desc: "Create end-user web dashboard" },
 ];
 
 export default function PipelineTrace({ activeIndex, doneCount }) {

@@ -6,12 +6,18 @@ export default function SettingsPanel({ onChange }) {
   const [apiKey, setApiKey] = useState("");
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [groqApiKey, setGroqApiKey] = useState("");
 
   useEffect(() => {
     const storedBase = localStorage.getItem("agent_api_base") || "";
     const storedKey = localStorage.getItem("agent_api_key") || "";
+    const storedGemini = localStorage.getItem("gemini_api_key") || "";
+    const storedGroq = localStorage.getItem("groq_api_key") || "";
     setApiBase(storedBase);
     setApiKey(storedKey);
+    setGeminiApiKey(storedGemini);
+    setGroqApiKey(storedGroq);
   }, []);
 
   const save = () => {
@@ -19,6 +25,10 @@ export default function SettingsPanel({ onChange }) {
     else localStorage.removeItem("agent_api_base");
     if (apiKey) localStorage.setItem("agent_api_key", apiKey);
     else localStorage.removeItem("agent_api_key");
+    if (geminiApiKey) localStorage.setItem("gemini_api_key", geminiApiKey);
+    else localStorage.removeItem("gemini_api_key");
+    if (groqApiKey) localStorage.setItem("groq_api_key", groqApiKey);
+    else localStorage.removeItem("groq_api_key");
     if (onChange) onChange({ base: apiBase, key: apiKey });
     testConnection();
   };
@@ -26,9 +36,13 @@ export default function SettingsPanel({ onChange }) {
   const clear = () => {
     setApiBase("");
     setApiKey("");
+    setGeminiApiKey("");
+    setGroqApiKey("");
     setTestResult(null);
     localStorage.removeItem("agent_api_base");
     localStorage.removeItem("agent_api_key");
+    localStorage.removeItem("gemini_api_key");
+    localStorage.removeItem("groq_api_key");
     if (onChange) onChange({ base: "", key: "" });
   };
 
@@ -41,6 +55,10 @@ export default function SettingsPanel({ onChange }) {
     localStorage.setItem("agent_api_base", currentBase);
     if (apiKey) localStorage.setItem("agent_api_key", apiKey);
     else localStorage.removeItem("agent_api_key");
+    if (geminiApiKey) localStorage.setItem("gemini_api_key", geminiApiKey);
+    else localStorage.removeItem("gemini_api_key");
+    if (groqApiKey) localStorage.setItem("groq_api_key", groqApiKey);
+    else localStorage.removeItem("groq_api_key");
     
     const result = await checkBackendHealth();
     setTestResult(result);
@@ -90,6 +108,40 @@ export default function SettingsPanel({ onChange }) {
               setTestResult(null);
             }}
             placeholder="••••••••••••••••••••••••"
+            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 font-mono text-xs text-white placeholder-slate-600 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+          />
+        </div>
+
+        {/* Gemini API Key Input */}
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+            Gemini LLM API Key (Forwarded to sandbox)
+          </label>
+          <input
+            type="password"
+            value={geminiApiKey}
+            onChange={(e) => {
+              setGeminiApiKey(e.target.value);
+              setTestResult(null);
+            }}
+            placeholder="AIzaSy..."
+            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 font-mono text-xs text-white placeholder-slate-600 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+          />
+        </div>
+
+        {/* Groq API Key Input */}
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+            Groq LLM API Key (Forwarded to sandbox)
+          </label>
+          <input
+            type="password"
+            value={groqApiKey}
+            onChange={(e) => {
+              setGroqApiKey(e.target.value);
+              setTestResult(null);
+            }}
+            placeholder="gsk_..."
             className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 font-mono text-xs text-white placeholder-slate-600 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
           />
         </div>

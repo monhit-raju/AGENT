@@ -328,8 +328,10 @@ Runs the agents below in sequence, each one receiving the previous
 agent's output as its input.
 """
 
+import os
 import json
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 {imports}
@@ -341,9 +343,13 @@ class RunRequest(BaseModel):
     input_data: dict
 
 
-@app.get("/")
-def health_check():
-    return {{"status": "generated multi-agent system is running"}}
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    static_index = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if os.path.exists(static_index):
+        with open(static_index, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Generated Multi-Agent Backend is Running</h1><p>Frontend file static/index.html not found.</p>"
 
 
 @app.post("/run")

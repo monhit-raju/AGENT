@@ -50,6 +50,7 @@ from agents.workflow_designer import design_workflow
 from agents.prompt_generator import generate_prompts
 from agents.tool_selector import select_tools
 from agents.code_generator import generate_code
+from agents.ui_generator import generate_ui
 from agents.clarification_agent import generate_clarifying_questions
 
 from validators.workflow_validator import validate_workflow
@@ -63,6 +64,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_api_keys_to_env(request, call_next):
+    gemini_key = request.headers.get("x-gemini-key")
+    groq_key = request.headers.get("x-groq-key")
+    if gemini_key:
+        os.environ["GEMINI_API_KEY"] = gemini_key
+    if groq_key:
+        os.environ["GROQ_API_KEY"] = groq_key
+    response = await call_next(request)
+    return response
 
 # "low" AND "medium" now both trigger clarification -- "medium" used to
 # sail through to the full pipeline, which let a lot of genuinely vague
@@ -203,6 +215,16 @@ def run_streaming_pipeline(user_input: str, requirement: dict):
         yield "data: " + json.dumps({"stage": "code_generator", "status": "complete", "result": files}) + "\n\n"
     except Exception as e:
         yield "data: " + json.dumps({"stage": "code_generator", "status": "failed", "error": str(e)}) + "\n\n"
+        return
+
+    # Step 8: UI Designer (Frontend Generator)
+    yield "data: " + json.dumps({"stage": "ui_generator", "status": "running"}) + "\n\n"
+    try:
+        ui_html = generate_ui(requirement, plan, workflow, prompts, tools, files)
+        files["static/index.html"] = ui_html
+        yield "data: " + json.dumps({"stage": "ui_generator", "status": "complete", "result": files}) + "\n\n"
+    except Exception as e:
+        yield "data: " + json.dumps({"stage": "ui_generator", "status": "failed", "error": str(e)}) + "\n\n"
         return
 
     context = ProjectContext(
@@ -554,9 +576,13 @@ The user will ask a technical question about this system. Answer their question 
                     temperature=0.2
                 )
             )
+            text_so_far = ""
             for chunk in response_stream:
                 if chunk.text:
-                    yield "data: " + json.dumps({"output": chunk.text}) + "\n\n"
+                    delta = chunk.text[len(text_so_far):]
+                    text_so_far = chunk.text
+                    if delta:
+                        yield "data: " + json.dumps({"output": delta}) + "\n\n"
         except Exception as e:
             try:
                 from groq import Groq

@@ -28,7 +28,7 @@ export default function SidebarNav({ activeTab, onTabChange, status }) {
     },
     {
       id: "settings",
-      label: "Configuration",
+      label: "Settings",
       description: "API connections & keys",
       icon: (
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">

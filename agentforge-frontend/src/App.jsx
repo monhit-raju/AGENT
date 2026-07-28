@@ -28,6 +28,7 @@ const pipelineStages = [
   "Prompt Generator",
   "Tool Selector",
   "Code Generator",
+  "UI Designer",
 ];
 
 const STAGE_MAP = {
@@ -37,7 +38,8 @@ const STAGE_MAP = {
   "workflow_validator": 3,
   "prompt_generator": 4,
   "tool_selector": 5,
-  "code_generator": 6
+  "code_generator": 6,
+  "ui_generator": 7
 };
 
 export default function App() {
@@ -103,6 +105,8 @@ export default function App() {
             } else if (chunk.stage === "tool_selector") {
               return { ...base, tool_selection: chunk.result };
             } else if (chunk.stage === "code_generator") {
+              return { ...base, generated_code: chunk.result };
+            } else if (chunk.stage === "ui_generator") {
               return { ...base, generated_code: chunk.result };
             }
             return base;

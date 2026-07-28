@@ -22,14 +22,18 @@ function getSettings() {
   return {
     base: storedBase || envBase || defaultBase,
     key: storedKey || "",
+    geminiKey: localStorage.getItem("gemini_api_key") || "",
+    groqKey: localStorage.getItem("groq_api_key") || "",
   };
 }
 
 function makeHeaders(hasJson = true) {
-  const { key } = getSettings();
+  const { key, geminiKey, groqKey } = getSettings();
   const headers = {};
   if (hasJson) headers["Content-Type"] = "application/json";
   if (key) headers["Authorization"] = `Bearer ${key}`;
+  if (geminiKey) headers["X-Gemini-Key"] = geminiKey;
+  if (groqKey) headers["X-Groq-Key"] = groqKey;
   return headers;
 }
 
