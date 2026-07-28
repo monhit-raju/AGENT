@@ -30,7 +30,17 @@ Always respond with ONLY a JSON object in exactly this shape:
   "key_tasks": ["list", "of", "3-6 concrete tasks the system must do"],
   "constraints": ["any limitations or requirements mentioned, or empty list"],
   "assumptions": ["anything you had to infer because the request was vague, or empty list if the request was already specific"],
-  "confidence": "high, medium, or low -- how specific was the original request"
+  "confidence": "high, medium, or low -- how specific was the original request",
+  "test_cases": [
+    {
+      "name": "a descriptive name for the first test case, e.g., 'Standard Customer Ticket'",
+      "input_data": { "comment": "Add realistic key-value pairs matching what the system's first agent expects" }
+    },
+    {
+      "name": "a descriptive name for the second test case, e.g., 'Spam or Vague Ticket'",
+      "input_data": { "comment": "Add realistic key-value pairs" }
+    }
+  ]
 }
 No text outside the JSON. No markdown formatting."""
 

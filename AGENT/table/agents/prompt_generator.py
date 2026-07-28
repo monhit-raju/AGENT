@@ -13,15 +13,18 @@ from llm_client import call_llm_json
 
 SYSTEM_PROMPT = """You are a Prompt Generator for a multi-agent system
 generator. You are given the overall system requirement and a list of
-agents that were chosen for it. Write a clear, usable system prompt for
-EACH agent -- the kind of prompt a real engineer could paste into an LLM
-call and get reliable behavior for that agent's specific job.
+agents that were chosen for it. Write an expert-level, highly detailed,
+and structured system prompt for EACH agent. The prompts must guarantee
+reliable, professional, and high-quality outputs when executed at runtime.
 
-Each system prompt you write should:
-- State the agent's role clearly in one sentence
-- List 2-4 concrete responsibilities specific to THIS system's domain
-- Include one line about tone/style appropriate to the domain
-- Be 3-6 sentences total, not a giant essay
+Each system prompt you write must include:
+1. ROLE & MISSION: A clear definition of the agent's role and its ultimate goal.
+2. DETAILED RESPONSIBILITIES: 3-5 specific, concrete tasks this agent must perform within the context of the overall business spec.
+3. REASONING & GUIDELINES: Step-by-step logic, domain best practices, and decision guidelines (Chain of Thought).
+4. EDGE CASES: Instructions on how to handle missing data, invalid formats, or out-of-scope requests.
+5. RESPONSE STYLE: Professional tone constraints, formatting rules, and structure.
+
+Make each prompt rich, structured, and comprehensive (approx. 100-250 words per prompt).
 
 Always respond with ONLY a JSON object in exactly this shape:
 {

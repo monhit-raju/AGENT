@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   generateSystem, 
   continueGeneration, 
@@ -68,6 +68,116 @@ export default function App() {
   ]);
   const [copilotInput, setCopilotInput] = useState("");
   const [copilotLoading, setCopilotLoading] = useState(false);
+
+  // Project Persistence States & Hooks
+  const [savedProjects, setSavedProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+
+  const getProjectName = (res, input) => {
+    const domain = res?.business_spec?.domain;
+    if (domain && typeof domain === "string") {
+      return domain
+        .split("_")
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    }
+    if (input && typeof input === "string") {
+      return input.length > 25 ? input.slice(0, 22) + "..." : input;
+    }
+    return "Untitled Build";
+  };
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("agentforge_saved_builds");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setSavedProjects(parsed);
+          const lastActive = localStorage.getItem("agentforge_active_build_id");
+          if (lastActive) {
+            const activeProj = parsed.find(p => p && p.id === lastActive);
+            if (activeProj) {
+              setResult(activeProj.result);
+              setActiveProjectId(activeProj.id);
+              setUserInput(activeProj.userInput || "");
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load saved projects:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!result) return;
+    let currentId = activeProjectId;
+    if (!currentId) {
+      currentId = "build_" + Date.now().toString(36);
+      setActiveProjectId(currentId);
+    }
+    const name = getProjectName(result, userInput);
+    setSavedProjects((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      const idx = arr.findIndex(p => p && p.id === currentId);
+      const updated = {
+        id: currentId,
+        name,
+        timestamp: new Date().toLocaleString(),
+        result,
+        userInput
+      };
+      let next;
+      if (idx > -1) {
+        next = [...arr];
+        next[idx] = updated;
+      } else {
+        next = [updated, ...arr];
+      }
+      localStorage.setItem("agentforge_saved_builds", JSON.stringify(next));
+      return next;
+    });
+    localStorage.setItem("agentforge_active_build_id", currentId);
+  }, [result]);
+
+  const handleNewProject = () => {
+    setResult(null);
+    setActiveProjectId(null);
+    setUserInput("");
+    setStatus("idle");
+    setQuestions([]);
+    setOutput("");
+    setStreamActiveIndex(-1);
+    setStreamDoneCount(0);
+    setSimLogs("");
+    localStorage.removeItem("agentforge_active_build_id");
+    setActiveTab("build");
+  };
+
+  const handleLoadProject = (project) => {
+    if (!project) return;
+    setActiveProjectId(project.id);
+    setResult(project.result);
+    setUserInput(project.userInput || "");
+    setStatus("complete");
+    setQuestions([]);
+    setStreamActiveIndex(-1);
+    setStreamDoneCount(8);
+    setActiveTab("workspace");
+  };
+
+  const handleDeleteProject = (id) => {
+    setSavedProjects((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      const next = arr.filter(p => p && p.id !== id);
+      localStorage.setItem("agentforge_saved_builds", JSON.stringify(next));
+      return next;
+    });
+    if (activeProjectId === id) {
+      handleNewProject();
+    }
+  };
 
   const handleChunk = (chunk) => {
     setOutput((prev) => {
@@ -331,10 +441,10 @@ export default function App() {
           const text = chunk?.output || "";
           if (text) {
             setCopilotMessages((prev) => {
-              const next = [...prev];
-              const lastMsg = next[next.length - 1];
-              lastMsg.text += text;
-              return next;
+              if (prev.length === 0) return prev;
+              const next = prev.slice(0, -1);
+              const lastMsg = prev[prev.length - 1];
+              return [...next, { ...lastMsg, text: lastMsg.text + text }];
             });
           }
         }
@@ -372,7 +482,16 @@ export default function App() {
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-body">
       {/* 1. Sidebar Nav (Desktop) */}
       <div className="hidden md:block w-72 shrink-0 h-full">
-        <SidebarNav activeTab={activeTab} onTabChange={setActiveTab} status={status} />
+        <SidebarNav 
+          activeTab={activeTab} 
+          onTabChange={setActiveTab} 
+          status={status} 
+          savedProjects={savedProjects}
+          activeProjectId={activeProjectId}
+          onLoadProject={handleLoadProject}
+          onDeleteProject={handleDeleteProject}
+          onNewProject={handleNewProject}
+        />
       </div>
 
       {/* 2. Main Content Wrapper */}
@@ -410,6 +529,12 @@ export default function App() {
               className={`block w-full py-2 text-left text-sm font-semibold ${activeTab === "build" ? "text-sky-400" : "text-slate-300"}`}
             >
               Architect Workspace
+            </button>
+            <button
+              onClick={() => { setActiveTab("workspace"); setMobileMenuOpen(false); }}
+              className={`block w-full py-2 text-left text-sm font-semibold ${activeTab === "workspace" ? "text-sky-400" : "text-slate-300"}`}
+            >
+              Code Workspace
             </button>
             <button
               onClick={() => { setActiveTab("output"); setMobileMenuOpen(false); }}
@@ -528,239 +653,249 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Split Screen IDE Workspace */}
-                  <div className="grid gap-6 lg:grid-cols-2 items-start">
-                    
-                    {/* LEFT PANE: Systems Specifications Explorer */}
-                    <div className="space-y-6">
-                      
-                      {/* Sub-tab Selectors */}
-                      {status !== "needs_clarification" && (
-                        <div className="flex overflow-x-auto gap-2 bg-slate-950/60 border border-slate-900 rounded-2xl p-1.5 scrollbar-thin">
-                          {subTabs.map((sub) => (
-                            <button
-                              key={sub.id}
-                              onClick={() => setActiveSubTab(sub.id)}
-                              className={`rounded-xl px-4 py-2.5 text-xs font-bold shrink-0 transition-all duration-150 ${
-                                activeSubTab === sub.id
-                                  ? "bg-sky-500 text-slate-950 shadow-md shadow-sky-500/10"
-                                  : "text-slate-400 hover:bg-slate-900/60 hover:text-slate-200"
-                              }`}
-                            >
-                              {sub.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                  {/* Full-width Specifications Explorer */}
+                  <div className="space-y-6">
+                    {/* Sub-tab Selectors */}
+                    {status !== "needs_clarification" && (
+                      <div className="flex overflow-x-auto gap-2 bg-slate-950/60 border border-slate-900 rounded-2xl p-1.5 scrollbar-thin">
+                        {subTabs.map((sub) => (
+                          <button
+                            key={sub.id}
+                            onClick={() => setActiveSubTab(sub.id)}
+                            className={`rounded-xl px-4 py-2.5 text-xs font-bold shrink-0 transition-all duration-150 ${
+                              activeSubTab === sub.id
+                                ? "bg-sky-500 text-slate-950 shadow-md shadow-sky-500/10"
+                                : "text-slate-400 hover:bg-slate-900/60 hover:text-slate-200"
+                            }`}
+                          >
+                            {sub.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                      {/* Loading Pipeline View */}
-                      {isLoading && (
-                        <PipelineTrace activeIndex={activeIndex} doneCount={doneCount} />
-                      )}
+                    {/* Loading Pipeline View */}
+                    {isLoading && (
+                      <PipelineTrace activeIndex={activeIndex} doneCount={doneCount} />
+                    )}
 
-                      {/* Clarification Resumption Flow */}
-                      {status === "needs_clarification" && (
-                        <div className="space-y-6">
-                          <ClarificationPanel questions={questions} onSubmit={handleClarificationSubmit} isLoading={isLoading} />
-                          {result?.business_spec && (
-                            <div className="glass-panel rounded-3xl p-6 space-y-4">
-                              <h3 className="font-display font-bold text-white text-base">Current Extraction</h3>
-                              <div className="rounded-xl bg-slate-950/60 border border-slate-900 p-4 font-body text-xs text-slate-300 leading-relaxed">
-                                <span className="block font-mono text-[9px] uppercase tracking-wider text-slate-500 mb-1">Assumption Goal</span>
-                                {result.business_spec.goal}
-                              </div>
+                    {/* Clarification Resumption Flow */}
+                    {status === "needs_clarification" && (
+                      <div className="space-y-6">
+                        <ClarificationPanel questions={questions} onSubmit={handleClarificationSubmit} isLoading={isLoading} />
+                        {result?.business_spec && (
+                          <div className="glass-panel rounded-3xl p-6 space-y-4">
+                            <h3 className="font-display font-bold text-white text-base">Current Extraction</h3>
+                            <div className="rounded-xl bg-slate-950/60 border border-slate-900 p-4 font-body text-xs text-slate-300 leading-relaxed">
+                              <span className="block font-mono text-[9px] uppercase tracking-wider text-slate-500 mb-1">Assumption Goal</span>
+                              {result.business_spec.goal}
                             </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                      {/* Compiled Sheets Display */}
-                      {status === "complete" && result && (
-                        <div className="transition-all duration-300 space-y-6">
-                          {/* Main SubTab Content panels */}
-                          {activeSubTab === "spec" && <BusinessSheet businessSpec={result.business_spec} />}
-                          {activeSubTab === "agents" && <AgentsSheet architecture={result.architecture} />}
-                          {activeSubTab === "workflow" && <WorkflowSheet workflow={result.workflow} onWorkflowChange={handleWorkflowChange} />}
-                          {activeSubTab === "tools" && <ToolsSheet toolSelection={result.tool_selection} architecture={result.architecture} />}
-                          {activeSubTab === "prompts" && <PromptsSheet prompts={result.prompts} architecture={result.architecture} />}
-                          
-                          {/* Q&A Copilot SubTab */}
-                          {activeSubTab === "copilot" && (
-                            <div className="glass-panel rounded-3xl p-6 space-y-5 flex flex-col h-[520px] justify-between">
-                              <div>
-                                <span className="font-mono text-[10px] uppercase tracking-widest text-sky-400">Assistant</span>
-                                <h3 className="font-display text-lg font-bold text-white">Architect Copilot</h3>
-                                <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                                  Ask questions about the active agent specifications, prompt strategies, tool allocation, or workflow linkages.
-                                </p>
-                              </div>
+                    {/* Compiled Sheets Display */}
+                    {status === "complete" && result && (
+                      <div className="transition-all duration-300 space-y-6">
+                        {/* Main SubTab Content panels */}
+                        {activeSubTab === "spec" && <BusinessSheet businessSpec={result.business_spec} />}
+                        {activeSubTab === "agents" && <AgentsSheet architecture={result.architecture} />}
+                        {activeSubTab === "workflow" && <WorkflowSheet workflow={result.workflow} onWorkflowChange={handleWorkflowChange} />}
+                        {activeSubTab === "tools" && <ToolsSheet toolSelection={result.tool_selection} architecture={result.architecture} />}
+                        {activeSubTab === "prompts" && <PromptsSheet prompts={result.prompts} architecture={result.architecture} />}
+                        
+                        {/* Q&A Copilot SubTab */}
+                        {activeSubTab === "copilot" && (
+                          <div className="glass-panel rounded-3xl p-6 space-y-5 flex flex-col h-[520px] justify-between">
+                            <div>
+                              <span className="font-mono text-[10px] uppercase tracking-widest text-sky-400">Assistant</span>
+                              <h3 className="font-display text-lg font-bold text-white">Architect Copilot</h3>
+                              <p className="text-xs text-slate-400 leading-relaxed mt-1">
+                                Ask questions about the active agent specifications, prompt strategies, tool allocation, or workflow linkages.
+                              </p>
+                            </div>
 
-                              {/* Chat Message Window */}
-                              <div className="flex-1 overflow-y-auto space-y-3 bg-slate-950/60 border border-slate-900 rounded-2xl p-4 my-2 scrollbar-thin">
-                                {copilotMessages.map((msg, idx) => (
-                                  <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed ${
-                                      msg.sender === 'user' 
-                                        ? 'bg-sky-500 text-slate-950 font-bold rounded-tr-none' 
-                                        : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none whitespace-pre-wrap'
-                                    }`}>
-                                      {msg.text || (
-                                        <div className="flex items-center gap-1 py-1">
-                                          <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                          <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                          <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                                        </div>
-                                      )}
-                                    </div>
+                            {/* Chat Message Window */}
+                            <div className="flex-1 overflow-y-auto space-y-3 bg-slate-950/60 border border-slate-900 rounded-2xl p-4 my-2 scrollbar-thin">
+                              {copilotMessages.map((msg, idx) => (
+                                <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed ${
+                                    msg.sender === 'user' 
+                                      ? 'bg-sky-500 text-slate-950 font-bold rounded-tr-none' 
+                                      : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none whitespace-pre-wrap'
+                                  }`}>
+                                    {msg.text || (
+                                      <div className="flex items-center gap-1 py-1">
+                                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                      </div>
+                                    )}
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+                              ))}
+                            </div>
 
-                              {/* Input Form */}
-                              <div className="flex gap-2.5 shrink-0 pt-2 border-t border-slate-900">
-                                <input
-                                  type="text"
-                                  value={copilotInput}
-                                  onChange={(e) => setCopilotInput(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === "Enter") handleCopilotSubmit(); }}
-                                  disabled={copilotLoading}
-                                  placeholder="e.g. What APIs are assigned to the validator agent?"
-                                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500 transition-all"
+                            {/* Input Form */}
+                            <div className="flex gap-2.5 shrink-0 pt-2 border-t border-slate-900">
+                              <input
+                                type="text"
+                                value={copilotInput}
+                                onChange={(e) => setCopilotInput(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleCopilotSubmit(); }}
+                                disabled={copilotLoading}
+                                placeholder="e.g. What APIs are assigned to the validator agent?"
+                                className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500 transition-all"
+                              />
+                              <button
+                                onClick={handleCopilotSubmit}
+                                disabled={copilotLoading || !copilotInput.trim()}
+                                className="rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 transition-all px-4 py-2 text-xs font-bold text-slate-950 disabled:opacity-40 disabled:scale-100 shrink-0 inline-flex items-center gap-1.5"
+                              >
+                                {copilotLoading ? (
+                                  <svg className="h-4 w-4 animate-spin text-slate-950" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                  </svg>
+                                ) : (
+                                  <svg className="h-4 w-4 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                  </svg>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Simulator SubTab */}
+                        {activeSubTab === "simulate" && (
+                          <div className="glass-panel rounded-3xl p-6 space-y-5">
+                            <div>
+                              <span className="font-mono text-[10px] uppercase tracking-widest text-sky-400">Sandbox</span>
+                              <h3 className="font-display text-lg font-bold text-white">Live Pipeline Execution</h3>
+                              <p className="text-xs text-slate-400 leading-relaxed mt-1">
+                                Run the generated Python modules in a sandbox subprocess and watch agent collaboration live.
+                              </p>
+                            </div>
+
+                            {/* Visualization Canvas */}
+                            {result?.architecture?.agents && (
+                              <div className="border border-slate-900/60 rounded-2xl bg-slate-950/40 p-4">
+                                <SimulationCanvas 
+                                  agents={result.architecture.agents}
+                                  activeAgentId={activeSimNode}
+                                  completedAgents={completedSimNodes}
+                                  simLogs={simLogs}
                                 />
-                                <button
-                                  onClick={handleCopilotSubmit}
-                                  disabled={copilotLoading || !copilotInput.trim()}
-                                  className="rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 transition-all px-4 py-2 text-xs font-bold text-slate-950 disabled:opacity-40 disabled:scale-100 shrink-0 inline-flex items-center gap-1.5"
-                                >
-                                  {copilotLoading ? (
+                              </div>
+                            )}
+
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-1.5">
+                                  Mock Input Data (JSON)
+                                </label>
+                                <textarea
+                                  value={simInput}
+                                  onChange={(e) => setSimInput(e.target.value)}
+                                  className="w-full min-h-[90px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-300 outline-none focus:border-sky-500"
+                                />
+                              </div>
+                              <button
+                                onClick={handleSimulateSubmit}
+                                disabled={simulating}
+                                className="w-full rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-98 transition-all px-4 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                              >
+                                {simulating ? (
+                                  <>
                                     <svg className="h-4 w-4 animate-spin text-slate-950" fill="none" viewBox="0 0 24 24">
                                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                     </svg>
-                                  ) : (
-                                    <svg className="h-4 w-4 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    <span>Running Simulation Sandbox...</span>
+                                  </>
+                                ) : (
+                                  <span>Run Simulation Sandbox</span>
+                                )}
+                              </button>
+                            </div>
+
+                            {simLogs && (
+                              <div className="space-y-1.5">
+                                <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                                  Simulation Console Logs
+                                </label>
+                                <pre className="w-full max-h-[160px] overflow-y-auto bg-slate-950 border border-slate-900 rounded-xl p-4 font-mono text-[9px] text-emerald-400 leading-relaxed whitespace-pre-wrap">
+                                  {simLogs}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Code Refinement Chat input box (displayed under explorer unless in simulate tab) */}
+                        {activeSubTab !== "simulate" && (
+                          <div className="glass-panel rounded-3xl p-5 border border-sky-500/10 shadow-[0_0_15px_-4px_rgba(56,189,248,0.08)]">
+                            <p className="font-mono text-[9px] uppercase tracking-wider text-slate-500 mb-2">
+                              Refine System Architecture
+                            </p>
+                            <div className="flex gap-2.5">
+                              <input
+                                type="text"
+                                value={refinementInput}
+                                onChange={(e) => setRefinementInput(e.target.value)}
+                                disabled={refining}
+                                placeholder="e.g. Add logging scripts to agents, or add validation rules..."
+                                className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500 transition-all"
+                              />
+                              <button
+                                onClick={handleRefineSubmit}
+                                disabled={refining || !refinementInput.trim()}
+                                className="rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 transition-all px-4 py-2 text-xs font-bold text-slate-950 disabled:opacity-40 disabled:scale-100 shrink-0 inline-flex items-center gap-1.5"
+                              >
+                                {refining ? (
+                                  <>
+                                    <svg className="h-3.5 w-3.5 animate-spin text-slate-950" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                     </svg>
-                                  )}
-                                </button>
-                              </div>
+                                    <span>Refining...</span>
+                                  </>
+                                ) : (
+                                  <span>Refine</span>
+                                )}
+                              </button>
                             </div>
-                          )}
-
-                          {/* Live Simulator SubTab */}
-                          {activeSubTab === "simulate" && (
-                            <div className="glass-panel rounded-3xl p-6 space-y-5">
-                              <div>
-                                <span className="font-mono text-[10px] uppercase tracking-widest text-sky-400">Sandbox</span>
-                                <h3 className="font-display text-lg font-bold text-white">Live Pipeline Execution</h3>
-                                <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                                  Run the generated Python modules in a sandbox subprocess and watch agent collaboration live.
-                                </p>
-                              </div>
-
-                              {/* Visualization Canvas */}
-                              {result?.architecture?.agents && (
-                                <div className="border border-slate-900/60 rounded-2xl bg-slate-950/40 p-4">
-                                  <SimulationCanvas 
-                                    agents={result.architecture.agents}
-                                    activeAgentId={activeSimNode}
-                                    completedAgents={completedSimNodes}
-                                    simLogs={simLogs}
-                                  />
-                                </div>
-                              )}
-
-                              <div className="space-y-3">
-                                <div>
-                                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-1.5">
-                                    Mock Input Data (JSON)
-                                  </label>
-                                  <textarea
-                                    value={simInput}
-                                    onChange={(e) => setSimInput(e.target.value)}
-                                    className="w-full min-h-[90px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-xs text-slate-300 outline-none focus:border-sky-500"
-                                  />
-                                </div>
-                                <button
-                                  onClick={handleSimulateSubmit}
-                                  disabled={simulating}
-                                  className="w-full rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-98 transition-all px-4 py-2.5 text-xs font-bold text-slate-950 disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                                >
-                                  {simulating ? (
-                                    <>
-                                      <svg className="h-4 w-4 animate-spin text-slate-950" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                      </svg>
-                                      <span>Running Simulation Sandbox...</span>
-                                    </>
-                                  ) : (
-                                    <span>Run Simulation Sandbox</span>
-                                  )}
-                                </button>
-                              </div>
-
-                              {simLogs && (
-                                <div className="space-y-1.5">
-                                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                                    Simulation Console Logs
-                                  </label>
-                                  <pre className="w-full max-h-[160px] overflow-y-auto bg-slate-950 border border-slate-900 rounded-xl p-4 font-mono text-[9px] text-emerald-400 leading-relaxed whitespace-pre-wrap">
-                                    {simLogs}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Code Refinement Chat input box (displayed under explorer unless in simulate tab) */}
-                          {activeSubTab !== "simulate" && (
-                            <div className="glass-panel rounded-3xl p-5 border border-sky-500/10 shadow-[0_0_15px_-4px_rgba(56,189,248,0.08)]">
-                              <p className="font-mono text-[9px] uppercase tracking-wider text-slate-500 mb-2">
-                                Refine System Architecture
-                              </p>
-                              <div className="flex gap-2.5">
-                                <input
-                                  type="text"
-                                  value={refinementInput}
-                                  onChange={(e) => setRefinementInput(e.target.value)}
-                                  disabled={refining}
-                                  placeholder="e.g. Add logging scripts to agents, or add validation rules..."
-                                  className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500 transition-all"
-                                />
-                                <button
-                                  onClick={handleRefineSubmit}
-                                  disabled={refining || !refinementInput.trim()}
-                                  className="rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 transition-all px-4 py-2 text-xs font-bold text-slate-950 disabled:opacity-40 disabled:scale-100 shrink-0 inline-flex items-center gap-1.5"
-                                >
-                                  {refining ? (
-                                    <>
-                                      <svg className="h-3.5 w-3.5 animate-spin text-slate-950" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                      </svg>
-                                      <span>Refining...</span>
-                                    </>
-                                  ) : (
-                                    <span>Refine</span>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* RIGHT PANE: Code workbench */}
-                    <div>
-                      <CodeSheet 
-                        generatedCode={result?.generated_code} 
-                        validationReport={result?.validation_report} 
-                        onCodeChange={handleCodeChange}
-                      />
-                    </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: CODE WORKSPACE */}
+          {activeTab === "workspace" && (
+            <div className="max-w-7xl mx-auto">
+              {result?.generated_code ? (
+                <CodeSheet 
+                  generatedCode={result.generated_code} 
+                  validationReport={result.validation_report} 
+                  onCodeChange={handleCodeChange}
+                  businessSpec={result?.business_spec}
+                />
+              ) : (
+                <div className="rounded-2xl border border-slate-900 bg-slate-950/40 p-12 text-center text-slate-500">
+                  <svg className="mx-auto h-12 w-12 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                  </svg>
+                  <h3 className="text-base font-bold text-slate-300">Code Workspace Offline</h3>
+                  <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Generate a multi-agent system layout inside the Architect tab first to compile source code assets.
+                  </p>
                 </div>
               )}
             </div>

@@ -34,7 +34,7 @@ def validate_workflow(agent_plan: dict, workflow: dict) -> dict:
     edges = workflow.get("edges", [])
 
     # 1. Every edge must reference ids that actually exist somewhere.
-    all_known_ids = planned_ids | node_ids | {"user"}
+    all_known_ids = planned_ids | node_ids | {"user", "exit"}
     for edge in edges:
         for key in ("from", "to"):
             ref = edge.get(key)
@@ -68,12 +68,47 @@ def validate_workflow(agent_plan: dict, workflow: dict) -> dict:
         stack.discard(node)
         return False
 
-    visited = set()
+    dfs_visited = set()
     for node in list(graph.keys()):
-        if node not in visited:
-            if _has_cycle(node, visited, set()):
+        if node not in dfs_visited:
+            if _has_cycle(node, dfs_visited, set()):
                 issues.append("Circular dependency detected in the workflow graph")
                 break
+
+    # 5. Empty workflow check
+    if not edges or not node_ids:
+        issues.append("The workflow topology is empty. At least one agent node and transition must be defined.")
+
+    # 6. Dead ends and Self-loops checks
+    incoming = set()
+    outgoing = set()
+    for edge in edges:
+        f = edge.get("from")
+        t = edge.get("to")
+        if f:
+            outgoing.add(f)
+        if t:
+            incoming.add(t)
+        if f and t and f == t:
+            warnings.append(f"Self-loop detected on agent '{f}'. Verify loop termination conditions to avoid infinite LLM cycles at runtime.")
+
+    for agent_id in planned_ids:
+        if agent_id in incoming and agent_id not in outgoing:
+            warnings.append(f"Agent '{agent_id}' receives inputs but has no outgoing transitions. It may be a dead-end.")
+
+    # 7. Unreachable nodes check (BFS starting from "user")
+    bfs_visited = {"user"}
+    queue = ["user"]
+    while queue:
+        curr = queue.pop(0)
+        for neighbor in graph.get(curr, []):
+            if neighbor not in bfs_visited:
+                bfs_visited.add(neighbor)
+                queue.append(neighbor)
+
+    for agent_id in planned_ids:
+        if agent_id not in bfs_visited:
+            warnings.append(f"Agent '{agent_id}' is unreachable from the 'user' starting node.")
 
     is_valid = len(issues) == 0
 

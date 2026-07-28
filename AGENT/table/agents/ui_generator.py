@@ -22,6 +22,7 @@ DESIGN RULES:
 - Style: Highly polished dark mode (slate-950/indigo-950), backdrop-blur glassmorphic panels, neon glows, clean margins.
 - Typography: Outfit or Inter Google Fonts.
 - Integrations: Include an inline <script>. It must POST to `/run` with body JSON `{"input_data": { ... }}` representing user inputs, and display the response output.
+- Credentials Entry: Include a small, subtle settings gear/modal or input fields allowing users to configure their own Gemini API Key (`X-Gemini-Key`) and Groq API Key (`X-Groq-Key`). Save them in localStorage, and append them as request headers to `/run` fetch requests so the backend has access to keys if `.env` values are absent.
 - Formatting: Return ONLY the raw HTML code, starting with <!DOCTYPE html> and ending with </html>. Do not wrap the code in markdown blocks like ```html or ```. Do not add any explanation or text before/after the code."""
 
     user_prompt = (

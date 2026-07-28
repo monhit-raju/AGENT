@@ -338,6 +338,17 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Generated Multi-Agent System")
 
+@app.middleware("http")
+async def add_api_keys_to_env(request, call_next):
+    gemini_key = request.headers.get("x-gemini-key")
+    groq_key = request.headers.get("x-groq-key")
+    if gemini_key:
+        os.environ["GEMINI_API_KEY"] = gemini_key
+    if groq_key:
+        os.environ["GROQ_API_KEY"] = groq_key
+    response = await call_next(request)
+    return response
+
 
 class RunRequest(BaseModel):
     input_data: dict

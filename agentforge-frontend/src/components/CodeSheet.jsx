@@ -1,16 +1,92 @@
 import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
 import Sheet from "./Sheet.jsx";
-import { downloadCustomProject } from "../api.js";
+import { downloadCustomProject, runSimulation } from "../api.js";
 
-export default function CodeSheet({ generatedCode, validationReport, onCodeChange }) {
+export default function CodeSheet({ generatedCode, validationReport, onCodeChange, businessSpec }) {
   const files = generatedCode || {};
   const fileNames = Object.keys(files);
   const [selected, setSelected] = useState(fileNames[0] || null);
   const [copied, setCopied] = useState(false);
   const [wordWrap, setWordWrap] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [viewMode, setViewMode] = useState("code"); // "code" | "preview"
+  const [viewMode, setViewMode] = useState("code"); // "code" | "preview" | "tests"
+  const [testStates, setTestStates] = useState({});
+  const [openTestLogs, setOpenTestLogs] = useState({});
+  const [openTestOutputs, setOpenTestOutputs] = useState({});
+
+  const rawTestCases = businessSpec?.test_cases;
+  const testCases = Array.isArray(rawTestCases) ? rawTestCases : [
+    {
+      name: "Standard Client Query",
+      input_data: { query: "How do I update my profile details?" }
+    },
+    {
+      name: "Out of Scope Request",
+      input_data: { query: "What is the capital of France?" }
+    }
+  ];
+
+  const runTestCase = async (index, testCase) => {
+    setTestStates((prev) => ({
+      ...prev,
+      [index]: { status: "running", logs: "Initializing test runner...\n", output: null }
+    }));
+    
+    const startTime = Date.now();
+    let accumulatedLogs = "";
+    
+    try {
+      await runSimulation(files, testCase.input_data, (chunk) => {
+        const text = chunk?.output || "";
+        if (text) {
+          accumulatedLogs += text;
+          setTestStates((prev) => ({
+            ...prev,
+            [index]: {
+              ...prev[index],
+              logs: accumulatedLogs
+            }
+          }));
+        }
+      });
+      
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
+      const passed = accumulatedLogs.includes("[SIMULATOR] Simulation run completed successfully!");
+      
+      let parsedOutput = null;
+      if (accumulatedLogs.includes("[SIMULATOR_RESULT]")) {
+        try {
+          const parts = accumulatedLogs.split("[SIMULATOR_RESULT]");
+          const resultStr = parts[1].trim();
+          parsedOutput = JSON.parse(resultStr);
+        } catch (e) {
+          console.error("Failed to parse simulation result:", e);
+        }
+      }
+      
+      setTestStates((prev) => ({
+        ...prev,
+        [index]: {
+          status: passed ? "passed" : "failed",
+          logs: accumulatedLogs,
+          duration,
+          output: parsedOutput
+        }
+      }));
+    } catch (e) {
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
+      setTestStates((prev) => ({
+        ...prev,
+        [index]: {
+          status: "failed",
+          logs: accumulatedLogs + `\n[RUNNER EXCEPTION] Run failed: ${e.message}\n`,
+          duration,
+          output: null
+        }
+      }));
+    }
+  };
 
   useEffect(() => {
     if (!selected && fileNames.length > 0) {
@@ -164,23 +240,23 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
 
               {/* Preferences */}
               <div className="flex items-center gap-3">
-                {selected && selected.endsWith(".html") && (
-                  <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 mr-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("code")}
-                      className={`rounded px-2.5 py-1 text-[9px] font-mono font-bold uppercase transition-all duration-150 ${
-                        viewMode === "code" 
-                          ? "bg-sky-500 text-slate-950 shadow" 
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      Code
-                    </button>
+                <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 mr-1.5 font-mono text-[9px] font-bold uppercase">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("code")}
+                    className={`rounded px-2.5 py-1 transition-all duration-150 ${
+                      viewMode === "code" 
+                        ? "bg-sky-500 text-slate-950 shadow" 
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Code
+                  </button>
+                  {selected && selected.endsWith(".html") && (
                     <button
                       type="button"
                       onClick={() => setViewMode("preview")}
-                      className={`rounded px-2.5 py-1 text-[9px] font-mono font-bold uppercase transition-all duration-150 ${
+                      className={`rounded px-2.5 py-1 transition-all duration-150 ${
                         viewMode === "preview" 
                           ? "bg-sky-500 text-slate-950 shadow" 
                           : "text-slate-400 hover:text-slate-200"
@@ -188,8 +264,19 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
                     >
                       Preview
                     </button>
-                  </div>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("tests")}
+                    className={`rounded px-2.5 py-1 transition-all duration-150 ${
+                      viewMode === "tests" 
+                        ? "bg-sky-500 text-slate-950 shadow" 
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Test Suite
+                  </button>
+                </div>
 
                 <button
                   type="button"
@@ -224,9 +311,106 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
               </div>
             </div>
 
-            {/* Monaco Component or Live Preview Iframe */}
-            <div className="flex-1 min-h-[360px] max-h-[460px] overflow-hidden select-text bg-slate-950">
-              {selected ? (
+            {/* Monaco Component, Live Preview, or Test Suite */}
+            <div className="flex-1 min-h-[360px] max-h-[460px] overflow-y-auto select-text bg-slate-950 p-4 scrollbar-thin">
+              {viewMode === "tests" ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-1 pb-2 border-b border-slate-900">
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-sky-400">Automated Testing</span>
+                    <h5 className="text-xs font-bold text-slate-300">Run Validation Test Cases</h5>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {testCases.map((tc, idx) => {
+                      const state = testStates[idx] || { status: "idle", logs: "", output: null };
+                      const isLogsOpen = !!openTestLogs[idx];
+                      const isOutputsOpen = !!openTestOutputs[idx];
+                      
+                      let statusBadge = "bg-slate-900 text-slate-500 border-slate-900";
+                      if (state.status === "running") statusBadge = "bg-sky-500/10 text-sky-400 border-sky-500/20 animate-pulse";
+                      else if (state.status === "passed") statusBadge = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                      else if (state.status === "failed") statusBadge = "bg-rose-500/10 text-rose-400 border-rose-500/20";
+                      
+                      return (
+                        <div key={idx} className="border border-slate-900 rounded-2xl p-4 bg-slate-950/60 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono font-bold text-slate-400">#{idx + 1}</span>
+                              <span className="text-xs font-bold text-white">{tc.name}</span>
+                            </div>
+                            
+                            <div className="flex items-center gap-3">
+                              {state.duration && (
+                                <span className="font-mono text-[10px] text-slate-500">Duration: {state.duration}</span>
+                              )}
+                              <span className={`rounded-lg px-2.5 py-1 text-[9px] font-mono font-bold uppercase border ${statusBadge}`}>
+                                {state.status}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={state.status === "running"}
+                                onClick={() => runTestCase(idx, tc)}
+                                className="rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-50 active:scale-95 px-3 py-1.5 text-[10px] font-bold text-slate-950 transition-all"
+                              >
+                                {state.status === "running" ? "Running..." : "Run Test"}
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <span className="block text-[8px] font-mono uppercase tracking-wider text-slate-500">Input Payload</span>
+                            <pre className="w-full text-[9px] bg-slate-900/60 border border-slate-900 rounded-xl p-3 font-mono text-slate-400 leading-relaxed overflow-x-auto">
+                              {JSON.stringify(tc.input_data, null, 2)}
+                            </pre>
+                          </div>
+                          
+                          {state.output && (
+                            <div className="space-y-1.5 border-t border-slate-900/60 pt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setOpenTestOutputs(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                className="flex items-center gap-1.5 text-[8.5px] font-mono uppercase tracking-wider text-slate-400 hover:text-slate-200"
+                              >
+                                <svg className={`h-3 w-3 transform transition-transform ${isOutputsOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                View Test Outcomes
+                              </button>
+                              
+                              {isOutputsOpen && (
+                                <pre className="w-full text-[9px] bg-slate-900/60 border border-slate-900 rounded-xl p-3 font-mono text-emerald-400 leading-relaxed overflow-x-auto">
+                                  {JSON.stringify(state.output, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+                          
+                          {state.logs && (
+                            <div className="space-y-1.5 border-t border-slate-900/60 pt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setOpenTestLogs(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                className="flex items-center gap-1.5 text-[8.5px] font-mono uppercase tracking-wider text-slate-400 hover:text-slate-200"
+                              >
+                                <svg className={`h-3 w-3 transform transition-transform ${isLogsOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                View Live Runner Console Logs
+                              </button>
+                              
+                              {isLogsOpen && (
+                                <pre className="w-full max-h-[160px] text-[8.5px] bg-slate-950 border border-slate-900 rounded-xl p-3 font-mono text-slate-400 leading-relaxed overflow-y-auto whitespace-pre-wrap">
+                                  {state.logs}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : selected ? (
                 viewMode === "preview" && selected.endsWith(".html") ? (
                   <iframe
                     srcDoc={activeContent}
@@ -234,30 +418,32 @@ export default function CodeSheet({ generatedCode, validationReport, onCodeChang
                     className="w-full h-[360px] border-0 bg-slate-900 rounded-b-xl"
                   />
                 ) : (
-                  <Editor
-                    height="360px"
-                    theme="vs-dark"
-                    language={
-                      selected.endsWith(".py") ? "python" : 
-                      selected.endsWith(".json") ? "json" : 
-                      selected.endsWith(".txt") ? "plaintext" : 
-                      selected.endsWith(".md") ? "markdown" : 
-                      selected.endsWith(".html") ? "html" : "plaintext"
-                    }
-                    value={activeContent}
-                    onChange={handleEditorChange}
-                    options={{
-                      fontSize: 12,
-                      fontFamily: "IBM Plex Mono, monospace",
-                      minimap: { enabled: false },
-                      wordWrap: wordWrap ? "on" : "off",
-                      lineNumbers: "on",
-                      scrollbar: { vertical: "visible", horizontal: "visible" },
-                      padding: { top: 12, bottom: 12 },
-                      readOnly: false,
-                      automaticLayout: true
-                    }}
-                  />
+                  <div className="w-full h-[360px] overflow-hidden rounded-b-xl">
+                    <Editor
+                      height="360px"
+                      theme="vs-dark"
+                      language={
+                        selected.endsWith(".py") ? "python" : 
+                        selected.endsWith(".json") ? "json" : 
+                        selected.endsWith(".txt") ? "plaintext" : 
+                        selected.endsWith(".md") ? "markdown" : 
+                        selected.endsWith(".html") ? "html" : "plaintext"
+                      }
+                      value={activeContent}
+                      onChange={handleEditorChange}
+                      options={{
+                        fontSize: 12,
+                        fontFamily: "IBM Plex Mono, monospace",
+                        minimap: { enabled: false },
+                        wordWrap: wordWrap ? "on" : "off",
+                        lineNumbers: "on",
+                        scrollbar: { vertical: "visible", horizontal: "visible" },
+                        padding: { top: 12, bottom: 12 },
+                        readOnly: false,
+                        automaticLayout: true
+                      }}
+                    />
+                  </div>
                 )
               ) : (
                 <div className="text-slate-600 italic select-none p-4">No file selected.</div>

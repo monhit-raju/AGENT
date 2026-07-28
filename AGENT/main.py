@@ -587,15 +587,27 @@ The user will ask a technical question about this system. Answer their question 
             try:
                 from groq import Groq
                 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-                response = groq_client.chat.completions.create(
-                    model=GROQ_MODEL,
-                    messages=[
-                        {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.2,
-                    stream=True
-                )
+                try:
+                    response = groq_client.chat.completions.create(
+                        model=GROQ_MODEL,
+                        messages=[
+                            {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.2,
+                        stream=True
+                    )
+                except Exception as rate_err:
+                    print(f"[warning] explain Groq 70B failed ({rate_err}), trying 8B fallback...")
+                    response = groq_client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[
+                            {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.2,
+                        stream=True
+                    )
                 for chunk in response:
                     content = chunk.choices[0].delta.content
                     if content:

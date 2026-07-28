@@ -37,6 +37,7 @@ from google.genai import types as genai_types
 load_dotenv()  # reads the .env file and loads GROQ_API_KEY / GEMINI_API_KEY
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL_FALLBACK = "llama-3.1-8b-instant"
 GEMINI_MODEL = "gemini-3.5-flash"
 
 _groq_client = None
@@ -72,15 +73,27 @@ def _ensure_json_keyword(system_prompt: str, user_prompt: str) -> str:
 
 def _call_groq_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
     safe_user_prompt = _ensure_json_keyword(system_prompt, user_prompt)
-    response = _get_groq_client().chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": safe_user_prompt},
-        ],
-        temperature=temperature,
-        response_format={"type": "json_object"},
-    )
+    try:
+        response = _get_groq_client().chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": safe_user_prompt},
+            ],
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+    except Exception as e:
+        print(f"[warning] Groq {GROQ_MODEL} failed ({e}), falling back to {GROQ_MODEL_FALLBACK}...")
+        response = _get_groq_client().chat.completions.create(
+            model=GROQ_MODEL_FALLBACK,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": safe_user_prompt},
+            ],
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
     raw_text = response.choices[0].message.content
     return json.loads(raw_text)
 
