@@ -42,34 +42,36 @@ DESIGN RULES:
             text = text[:-3]
         return text.strip()
 
-    # 1. Try Gemini
-    try:
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_key:
-            raise ValueError("GEMINI_API_KEY not found in environment.")
+    # 1. Try Gemini with key rotation
+    from llm_client import get_gemini_keys, get_gemini_client, get_groq_keys, get_groq_client
 
-        client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=user_prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.3
-            )
-        )
-        if response.text:
-            return clean_text(response.text)
-        raise ValueError("Empty response received from Gemini.")
-    except Exception as e:
-        print(f"[UI GENERATOR] Gemini generation failed: {e}. Trying Groq...")
-        
-        # 2. Try Groq fallback
+    gemini_keys = get_gemini_keys()
+    gemini_errors = []
+    for key in gemini_keys:
         try:
-            groq_key = os.environ.get("GROQ_API_KEY")
-            if not groq_key:
-                raise ValueError("GROQ_API_KEY not found in environment.")
+            client = get_gemini_client(key)
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.3
+                )
+            )
+            if response.text:
+                return clean_text(response.text)
+            raise ValueError("Empty response received from Gemini.")
+        except Exception as e:
+            key_suffix = str(key)[-4:] if key else "None"
+            gemini_errors.append(f"Key ending ...{key_suffix}: {e}")
+            print(f"[UI GENERATOR] Gemini generation failed with key ending in ...{key_suffix}: {e}. Trying next key...")
 
-            groq_client = Groq(api_key=groq_key)
+    # 2. Try Groq fallback with key rotation
+    groq_keys = get_groq_keys()
+    groq_errors = []
+    for key in groq_keys:
+        try:
+            groq_client = get_groq_client(key)
             response = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
@@ -83,10 +85,53 @@ DESIGN RULES:
                 return clean_text(content)
             raise ValueError("Empty response received from Groq.")
         except Exception as ge:
-            print(f"[UI GENERATOR ERROR] Both Gemini and Groq generation failed: {ge}")
-            
-            # 3. Fallback standard client page
-            return f"""<!DOCTYPE html>
+            key_suffix = str(key)[-4:] if key else "None"
+            groq_errors.append(f"Key ending ...{key_suffix}: {ge}")
+            print(f"[UI GENERATOR] Groq generation failed with key ending in ...{key_suffix}: {ge}. Trying next key...")
+
+    # 2.5. Try OpenRouter fallback with key rotation
+    from llm_client import get_openrouter_keys
+    or_keys = get_openrouter_keys()
+    or_errors = []
+    if or_keys:
+        import urllib.request
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+        for key in or_keys:
+            try:
+                headers = {
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                }
+                data = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.3
+                }
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(data).encode("utf-8"),
+                    headers=headers,
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    res_body = response.read().decode("utf-8")
+                    res_json = json.loads(res_body)
+                    content = res_json["choices"][0]["message"]["content"]
+                    if content:
+                        return clean_text(content)
+                raise ValueError("Empty response received from OpenRouter.")
+            except Exception as oe:
+                key_suffix = str(key)[-4:] if key else "None"
+                or_errors.append(f"Key ending ...{key_suffix}: {oe}")
+                print(f"[UI GENERATOR] OpenRouter generation failed with key ending in ...{key_suffix}: {oe}. Trying next key...")
+
+    print(f"[UI GENERATOR ERROR] Gemini, Groq, and OpenRouter generation failed. Gemini errors: {gemini_errors} | Groq errors: {groq_errors} | OpenRouter errors: {or_errors}")
+    # 3. Fallback standard client page
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">

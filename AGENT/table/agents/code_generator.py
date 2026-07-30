@@ -288,6 +288,8 @@ still work, but the real-world action (sending an email, etc.) won't.
 {api_key_section}
 ## Running this project
 
+### Locally
+
 ```bash
 python -m venv venv
 source venv/bin/activate     # Windows: venv\\Scripts\\activate
@@ -296,7 +298,16 @@ cp .env.example .env         # fill in every key listed above
 uvicorn main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs to test the generated pipeline.
+Open http://127.0.0.1:8000/ to view the custom frontend, and http://127.0.0.1:8000/docs to test the FastAPI endpoints.
+
+### Cloud Deployment (Fly.io)
+
+This project contains a pre-configured `Dockerfile` and `fly.toml` for one-click cloud hosting:
+
+1. Install Fly CLI: `curl -L https://fly.io/install.sh | sh`
+2. Authenticate: `fly auth login`
+3. Launch: `fly launch`
+4. Deploy: `fly deploy --env GROQ_API_KEY=your_key GEMINI_API_KEY=your_key`
 
 ## Notes
 This project was generated automatically. Every agent file was validated
@@ -397,22 +408,92 @@ load_dotenv()
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GEMINI_MODEL = "gemini-3.5-flash"
 
-_groq_client = None
-_gemini_client = None
+_groq_clients = {}
+_gemini_clients = {}
 
 
-def _get_groq_client():
-    global _groq_client
-    if _groq_client is None:
-        _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    return _groq_client
+def _get_groq_client(api_key=None):
+    if api_key not in _groq_clients:
+        _groq_clients[api_key] = Groq(api_key=api_key)
+    return _groq_clients[api_key]
 
 
-def _get_gemini_client():
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-    return _gemini_client
+def _get_gemini_client(api_key=None):
+    if api_key not in _gemini_clients:
+        _gemini_clients[api_key] = genai.Client(api_key=api_key)
+    return _gemini_clients[api_key]
+
+
+def _get_groq_keys():
+    val = os.environ.get("GROQ_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else [None]
+
+
+def _get_gemini_keys():
+    val = os.environ.get("GEMINI_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else [None]
+
+
+def _get_openrouter_keys():
+    val = os.environ.get("OPENROUTER_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else []
+
+
+def _clean_json_text(text):
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def _call_openrouter_json(system_prompt, user_prompt, temperature):
+    import urllib.request
+    keys = _get_openrouter_keys()
+    if not keys:
+        raise ValueError("No OpenRouter API keys found.")
+    last_err = None
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+    for key in keys:
+        try:
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            }
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature,
+                "response_format": {"type": "json_object"}
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                res_body = response.read().decode("utf-8")
+                res_json = json.loads(res_body)
+                content = res_json["choices"][0]["message"]["content"]
+                try:
+                    return json.loads(content)
+                except Exception:
+                    return json.loads(_clean_json_text(content))
+        except Exception as e:
+            last_err = e
+            print(f"[warning] OpenRouter failed with key ending in ...{str(key)[-4:] if key else 'None'} ({e}). Trying next key...")
+    raise last_err
 
 
 def _ensure_json_keyword(system_prompt, user_prompt):
@@ -424,29 +505,47 @@ def _ensure_json_keyword(system_prompt, user_prompt):
 
 def _call_groq_json(system_prompt, user_prompt, temperature):
     safe_user_prompt = _ensure_json_keyword(system_prompt, user_prompt)
-    response = _get_groq_client().chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": safe_user_prompt},
-        ],
-        temperature=temperature,
-        response_format={"type": "json_object"},
-    )
-    return json.loads(response.choices[0].message.content)
+    keys = _get_groq_keys()
+    last_err = None
+    for key in keys:
+        try:
+            client = _get_groq_client(key)
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": safe_user_prompt},
+                ],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            last_err = e
+            print(f"[warning] Groq failed with key ending in ...{str(key)[-4:] if key else 'None'} ({e}). Trying next key...")
+    raise last_err
 
 
 def _call_gemini_json(system_prompt, user_prompt, temperature):
-    response = _get_gemini_client().models.generate_content(
-        model=GEMINI_MODEL,
-        contents=user_prompt,
-        config=genai_types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=temperature,
-            response_mime_type="application/json",
-        ),
-    )
-    return json.loads(response.text)
+    keys = _get_gemini_keys()
+    last_err = None
+    for key in keys:
+        try:
+            client = _get_gemini_client(key)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                ),
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            last_err = e
+            print(f"[warning] Gemini failed with key ending in ...{str(key)[-4:] if key else 'None'} ({e}). Trying next key...")
+    raise last_err
 
 
 def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", temperature: float = 0.3) -> dict:
@@ -455,11 +554,30 @@ def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", 
             return _call_gemini_json(system_prompt, user_prompt, temperature)
         except Exception as e:
             print(f"[warning] Gemini failed ({e}), falling back to Groq...")
-            return _call_groq_json(system_prompt, user_prompt, temperature)
+            try:
+                return _call_groq_json(system_prompt, user_prompt, temperature)
+            except Exception as ge:
+                if _get_openrouter_keys():
+                    print(f"[warning] Groq fallback failed. Trying OpenRouter fallback...")
+                    try:
+                        return _call_openrouter_json(system_prompt, user_prompt, temperature)
+                    except Exception as oe:
+                        raise ValueError(f"All providers failed. Gemini: {e} | Groq: {ge} | OpenRouter: {oe}")
+                raise ValueError(f"Both providers failed. Gemini: {e} | Groq: {ge}")
     try:
         return _call_groq_json(system_prompt, user_prompt, temperature)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM did not return valid JSON: {e}")
+    except Exception as e:
+        print(f"[warning] Groq failed ({e}), falling back to Gemini...")
+        try:
+            return _call_gemini_json(system_prompt, user_prompt, temperature)
+        except Exception as ge:
+            if _get_openrouter_keys():
+                print(f"[warning] Gemini fallback failed. Trying OpenRouter fallback...")
+                try:
+                    return _call_openrouter_json(system_prompt, user_prompt, temperature)
+                except Exception as oe:
+                    raise ValueError(f"All providers failed. Groq: {e} | Gemini: {ge} | OpenRouter: {oe}")
+            raise ValueError(f"Both providers failed. Groq: {e} | Gemini: {ge}")
 '''
 
 
@@ -467,6 +585,7 @@ def _build_env_example(tools: dict) -> str:
     lines = [
         "GROQ_API_KEY=your_groq_key_here",
         "GEMINI_API_KEY=your_gemini_key_here",
+        "OPENROUTER_API_KEY=your_openrouter_key_here",
     ]
     required_keys = _collect_required_api_keys(tools)
     if required_keys:
@@ -483,6 +602,40 @@ def _build_requirements_txt(tools: dict) -> str:
     return "\n".join(base + extra) + "\n"
 
 
+GENERATED_DOCKERFILE = """FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install standard compiler dependencies
+RUN apt-get update && apt-get install -y \\
+    build-essential \\
+    curl \\
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+"""
+
+GENERATED_FLY_TOML = """# fly.toml app configuration file generated by AgentForge
+app = "agentforge-generated-app"
+primary_region = "bos"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+"""
+
+
 def _build_static_files(requirement, agent_plan, workflow, tools) -> dict:
     return {
         "README.md": _build_readme(requirement, agent_plan, workflow, tools),
@@ -490,6 +643,8 @@ def _build_static_files(requirement, agent_plan, workflow, tools) -> dict:
         "llm_client.py": GENERATED_LLM_CLIENT,
         "requirements.txt": _build_requirements_txt(tools),
         ".env.example": _build_env_example(tools),
+        "Dockerfile": GENERATED_DOCKERFILE,
+        "fly.toml": GENERATED_FLY_TOML,
     }
 
 

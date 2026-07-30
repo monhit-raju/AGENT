@@ -24,8 +24,8 @@ since ids get turned into function names later (run_<id>).
 import re
 from llm_client import call_llm_json
 
-MIN_AGENTS = 3
-MAX_AGENTS = 7
+MIN_AGENTS = 4
+MAX_AGENTS = 5
 
 SYSTEM_PROMPT = """You are an Agent Planner for a multi-agent system
 generator. You are given a structured business requirement. Design the
@@ -38,9 +38,9 @@ Bad: generic names like "Processing Agent" or "Handler Agent" that
 could belong to any system.
 
 Guidelines:
-- Design 3-7 agents. Fewer, sharply-defined agents beat many vague ones.
+- Design at least 30 to 35 agents to build a highly specialized micro-agent system.
 - Every agent needs a clear, non-overlapping responsibility -- if two
-  agents would do almost the same thing, merge them.
+  agents would do almost the same thing, make sure their input parameters or scopes are distinct.
 - Give each agent an "id": a short snake_case identifier (lowercase,
   underscores only, no spaces or special characters) -- this becomes a
   Python function name later, so it must be a valid identifier.

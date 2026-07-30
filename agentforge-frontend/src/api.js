@@ -24,16 +24,18 @@ function getSettings() {
     key: storedKey || "",
     geminiKey: localStorage.getItem("gemini_api_key") || "",
     groqKey: localStorage.getItem("groq_api_key") || "",
+    openrouterKey: localStorage.getItem("openrouter_api_key") || "",
   };
 }
 
 function makeHeaders(hasJson = true) {
-  const { key, geminiKey, groqKey } = getSettings();
+  const { key, geminiKey, groqKey, openrouterKey } = getSettings();
   const headers = {};
   if (hasJson) headers["Content-Type"] = "application/json";
   if (key) headers["Authorization"] = `Bearer ${key}`;
   if (geminiKey) headers["X-Gemini-Key"] = geminiKey;
   if (groqKey) headers["X-Groq-Key"] = groqKey;
+  if (openrouterKey) headers["X-OpenRouter-Key"] = openrouterKey;
   return headers;
 }
 

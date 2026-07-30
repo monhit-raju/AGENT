@@ -38,24 +38,104 @@ load_dotenv()  # reads the .env file and loads GROQ_API_KEY / GEMINI_API_KEY
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_MODEL_FALLBACK = "llama-3.1-8b-instant"
+
 GEMINI_MODEL = "gemini-3.5-flash"
+GEMINI_MODEL_FALLBACK = "gemini-2.0-flash"
 
-_groq_client = None
-_gemini_client = None
-
-
-def _get_groq_client() -> Groq:
-    global _groq_client
-    if _groq_client is None:
-        _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    return _groq_client
+_groq_clients = {}
+_gemini_clients = {}
 
 
-def _get_gemini_client() -> "genai.Client":
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-    return _gemini_client
+def get_groq_client(api_key: str = None) -> Groq:
+    if api_key not in _groq_clients:
+        _groq_clients[api_key] = Groq(api_key=api_key)
+    return _groq_clients[api_key]
+
+
+def get_gemini_client(api_key: str = None) -> "genai.Client":
+    if api_key not in _gemini_clients:
+        _gemini_clients[api_key] = genai.Client(api_key=api_key)
+    return _gemini_clients[api_key]
+
+
+def get_gemini_keys() -> list:
+    val = os.environ.get("GEMINI_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else [None]
+
+
+def get_groq_keys() -> list:
+    val = os.environ.get("GROQ_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else [None]
+
+
+def get_openrouter_keys() -> list:
+    val = os.environ.get("OPENROUTER_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else []
+
+
+def _clean_json_text(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def _call_openrouter_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
+    import urllib.request
+
+    keys = get_openrouter_keys()
+    if not keys:
+        raise ValueError("No OpenRouter API keys found.")
+
+    last_err = None
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    model = os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+
+    for key in keys:
+        try:
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            }
+
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature,
+                "response_format": {"type": "json_object"}
+            }
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as response:
+                res_body = response.read().decode("utf-8")
+                res_json = json.loads(res_body)
+                content = res_json["choices"][0]["message"]["content"]
+                try:
+                    return json.loads(content)
+                except Exception:
+                    return json.loads(_clean_json_text(content))
+        except Exception as e:
+            last_err = e
+            key_suffix = str(key)[-4:] if key else "None"
+            print(f"[warning] OpenRouter call failed with key ending in ...{key_suffix} ({e}). Trying next key...")
+
+    raise last_err
 
 
 def _ensure_json_keyword(system_prompt: str, user_prompt: str) -> str:
@@ -73,42 +153,93 @@ def _ensure_json_keyword(system_prompt: str, user_prompt: str) -> str:
 
 def _call_groq_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
     safe_user_prompt = _ensure_json_keyword(system_prompt, user_prompt)
-    try:
-        response = _get_groq_client().chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": safe_user_prompt},
-            ],
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
-    except Exception as e:
-        print(f"[warning] Groq {GROQ_MODEL} failed ({e}), falling back to {GROQ_MODEL_FALLBACK}...")
-        response = _get_groq_client().chat.completions.create(
-            model=GROQ_MODEL_FALLBACK,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": safe_user_prompt},
-            ],
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
-    raw_text = response.choices[0].message.content
-    return json.loads(raw_text)
+    keys = get_groq_keys()
+    last_err = None
+    for key in keys:
+        try:
+            client = get_groq_client(key)
+        except Exception as e:
+            last_err = e
+            key_suffix = str(key)[-4:] if key else "None"
+            print(f"[warning] Groq client initialization failed with key ending in ...{key_suffix} ({e}). Trying next key...")
+            continue
+
+        key_suffix = str(key)[-4:] if key else "None"
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": safe_user_prompt},
+                ],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            raw_text = response.choices[0].message.content
+            return json.loads(raw_text)
+        except Exception as e:
+            last_err = e
+            print(f"[warning] Groq {GROQ_MODEL} failed with key ending in ...{key_suffix} ({e}), trying fallback {GROQ_MODEL_FALLBACK} with same key...")
+            try:
+                response = client.chat.completions.create(
+                    model=GROQ_MODEL_FALLBACK,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": safe_user_prompt},
+                    ],
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                )
+                raw_text = response.choices[0].message.content
+                return json.loads(raw_text)
+            except Exception as fe:
+                print(f"[warning] Groq fallback {GROQ_MODEL_FALLBACK} also failed with key ending in ...{key_suffix} ({fe}). Trying next key...")
+                last_err = fe
+    raise last_err
 
 
 def _call_gemini_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
-    response = _get_gemini_client().models.generate_content(
-        model=GEMINI_MODEL,
-        contents=user_prompt,
-        config=genai_types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=temperature,
-            response_mime_type="application/json",
-        ),
-    )
-    return json.loads(response.text)
+    keys = get_gemini_keys()
+    last_err = None
+    for key in keys:
+        try:
+            client = get_gemini_client(key)
+        except Exception as e:
+            last_err = e
+            key_suffix = str(key)[-4:] if key else "None"
+            print(f"[warning] Gemini client initialization failed with key ending in ...{key_suffix} ({e}). Trying next key...")
+            continue
+
+        key_suffix = str(key)[-4:] if key else "None"
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                ),
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            last_err = e
+            print(f"[warning] Gemini {GEMINI_MODEL} failed with key ending in ...{key_suffix} ({e}), trying fallback {GEMINI_MODEL_FALLBACK} with same key...")
+            try:
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL_FALLBACK,
+                    contents=user_prompt,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=temperature,
+                        response_mime_type="application/json",
+                    ),
+                )
+                return json.loads(response.text)
+            except Exception as fe:
+                print(f"[warning] Gemini fallback {GEMINI_MODEL_FALLBACK} also failed with key ending in ...{key_suffix} ({fe}). Trying next key...")
+                last_err = fe
+    raise last_err
 
 
 _PROVIDER_FUNCS = {
@@ -161,9 +292,18 @@ def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", 
         try:
             return _call_with_retry(other_provider, system_prompt, user_prompt, temperature)
         except Exception as fallback_error:
-            raise ValueError(
-                f"Both providers failed. {provider}: {primary_error} | {other_provider}: {fallback_error}"
-            )
+            if get_openrouter_keys():
+                print(f"[fallback] Both standard providers failed. Trying OpenRouter fallback...")
+                try:
+                    return _call_openrouter_json(system_prompt, user_prompt, temperature)
+                except Exception as or_error:
+                    raise ValueError(
+                        f"All providers failed. {provider}: {primary_error} | {other_provider}: {fallback_error} | OpenRouter: {or_error}"
+                    )
+            else:
+                raise ValueError(
+                    f"Both providers failed. {provider}: {primary_error} | {other_provider}: {fallback_error}"
+                )
 
 
 if __name__ == "__main__":
