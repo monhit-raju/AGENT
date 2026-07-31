@@ -76,6 +76,12 @@ def get_openrouter_keys() -> list:
     return keys if keys else []
 
 
+def get_openai_keys() -> list:
+    val = os.environ.get("OPENAI_API_KEY", "")
+    keys = [k.strip() for k in val.split(",") if k.strip()]
+    return keys if keys else []
+
+
 def _clean_json_text(text: str) -> str:
     text = text.strip()
     if text.startswith("```json"):
@@ -242,9 +248,60 @@ def _call_gemini_json(system_prompt: str, user_prompt: str, temperature: float) 
     raise last_err
 
 
+def _call_openai_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
+    import urllib.request
+    keys = get_openai_keys()
+    if not keys:
+        raise ValueError("No OpenAI API keys found in OPENAI_API_KEY environment variable.")
+
+    last_err = None
+    url = "https://api.openai.com/v1/chat/completions"
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+
+    for key in keys:
+        try:
+            headers = {
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            }
+
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature,
+                "response_format": {"type": "json_object"}
+            }
+
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as response:
+                res_body = response.read().decode("utf-8")
+                res_json = json.loads(res_body)
+                content = res_json["choices"][0]["message"]["content"]
+                try:
+                    return json.loads(content)
+                except Exception:
+                    return json.loads(_clean_json_text(content))
+        except Exception as e:
+            last_err = e
+            key_suffix = str(key)[-4:] if key else "None"
+            print(f"[warning] OpenAI call failed with key ending in ...{key_suffix} ({e}). Trying next key...")
+
+    raise last_err
+
+
 _PROVIDER_FUNCS = {
     "groq": _call_groq_json,
     "gemini": _call_gemini_json,
+    "openai": _call_openai_json,
 }
 
 
@@ -275,35 +332,49 @@ def call_llm_json(system_prompt: str, user_prompt: str, provider: str = "groq", 
     Sends a system prompt + user prompt to an LLM and asks it to reply
     with ONLY valid JSON. Returns that JSON as a Python dict.
 
-    provider: "groq" (default, fast + reliable for most agents) or
-              "gemini" (better for code generation quality).
+    provider: "groq" (default, fast + reliable for most agents),
+              "gemini" (better for code generation quality), or
+              "openai" (official OpenAI GPT-4o / Codex API).
 
-    Resilience: the chosen provider gets one retry on any failure. If it
-    still fails, this automatically tries the OTHER provider (also with
-    one retry) before finally raising -- a single bad generation from
-    either provider should never crash a request on its own.
+    Resilience: cascading fallback across all configured providers.
     """
-    other_provider = "gemini" if provider == "groq" else "groq"
+    providers_order = ["openai", "gemini", "groq"]
+    if provider in providers_order:
+        providers_order.remove(provider)
+        providers_order.insert(0, provider)
 
-    try:
-        return _call_with_retry(provider, system_prompt, user_prompt, temperature)
-    except Exception as primary_error:
-        print(f"[fallback] {provider} failed after retry ({primary_error}), trying {other_provider}...")
+    # Determine which providers have keys configured
+    available_providers = []
+    for p in providers_order:
+        if p == "openai" and get_openai_keys():
+            available_providers.append(p)
+        elif p == "gemini" and get_gemini_keys() != [None]:
+            available_providers.append(p)
+        elif p == "groq" and get_groq_keys() != [None]:
+            available_providers.append(p)
+
+    if not available_providers:
+        # If no custom keys are configured in env, fallback to default behavior
+        available_providers = [provider, "gemini" if provider == "groq" else "groq"]
+
+    errors = []
+    for p in available_providers:
         try:
-            return _call_with_retry(other_provider, system_prompt, user_prompt, temperature)
-        except Exception as fallback_error:
-            if get_openrouter_keys():
-                print(f"[fallback] Both standard providers failed. Trying OpenRouter fallback...")
-                try:
-                    return _call_openrouter_json(system_prompt, user_prompt, temperature)
-                except Exception as or_error:
-                    raise ValueError(
-                        f"All providers failed. {provider}: {primary_error} | {other_provider}: {fallback_error} | OpenRouter: {or_error}"
-                    )
-            else:
-                raise ValueError(
-                    f"Both providers failed. {provider}: {primary_error} | {other_provider}: {fallback_error}"
-                )
+            return _call_with_retry(p, system_prompt, user_prompt, temperature)
+        except Exception as e:
+            print(f"[fallback] {p} failed after retry ({e}), trying next provider...")
+            errors.append(f"{p}: {str(e)}")
+
+    # If all standard providers failed, try OpenRouter as a final fallback
+    if get_openrouter_keys():
+        print(f"[fallback] All standard providers failed. Trying OpenRouter fallback...")
+        try:
+            return _call_openrouter_json(system_prompt, user_prompt, temperature)
+        except Exception as or_error:
+            errors.append(f"OpenRouter: {str(or_error)}")
+            raise ValueError(f"All providers failed. Details:\n" + "\n".join(errors))
+    else:
+        raise ValueError(f"Both standard providers failed. Details:\n" + "\n".join(errors))
 
 
 if __name__ == "__main__":
