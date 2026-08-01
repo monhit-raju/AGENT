@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { checkBackendHealth } from "../api.js";
+import { checkBackendHealth, getSettings } from "../api.js";
 
 export default function SettingsPanel({ onChange }) {
   const [apiBase, setApiBase] = useState("");
@@ -9,8 +9,11 @@ export default function SettingsPanel({ onChange }) {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [groqApiKey, setGroqApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [placeholderBase, setPlaceholderBase] = useState("http://127.0.0.1:8000");
 
   useEffect(() => {
+    const settings = getSettings();
+    setPlaceholderBase(settings.base);
     const storedBase = localStorage.getItem("agent_api_base") || "";
     const storedKey = localStorage.getItem("agent_api_key") || "";
     const storedGemini = localStorage.getItem("gemini_api_key") || "";
@@ -58,7 +61,7 @@ export default function SettingsPanel({ onChange }) {
     setTestResult(null);
     
     // Temporarily save parameters in local variables to run health check
-    const currentBase = apiBase || "http://127.0.0.1:8000";
+    const currentBase = apiBase || placeholderBase;
     localStorage.setItem("agent_api_base", currentBase);
     if (apiKey) localStorage.setItem("agent_api_key", apiKey);
     else localStorage.removeItem("agent_api_key");
@@ -98,7 +101,7 @@ export default function SettingsPanel({ onChange }) {
                 setApiBase(e.target.value);
                 setTestResult(null);
               }}
-              placeholder="http://127.0.0.1:8000"
+              placeholder={placeholderBase}
               className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 font-mono text-xs text-white placeholder-slate-600 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
             />
           </div>

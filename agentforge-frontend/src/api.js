@@ -1,6 +1,6 @@
 // API helpers. The base URL and API key are read from localStorage so users
 // can point the UI at an external Agent API without rebuilding.
-function getSettings() {
+export function getSettings() {
   const envBase = import.meta.env.VITE_API_BASE;
   const storedBase = localStorage.getItem("agent_api_base");
   const storedKey = localStorage.getItem("agent_api_key");
