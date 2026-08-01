@@ -114,7 +114,7 @@ export function downloadProjectUrl(userInput) {
 export async function checkBackendHealth() {
   const { base } = getSettings();
   try {
-    const res = await fetch(`${base.replace(/\/$/, '')}/`);
+    const res = await fetch(`${base.replace(/\/$/, '')}/health`);
     if (res.ok) {
       const data = await res.json();
       return data.status ? "healthy" : "warning";

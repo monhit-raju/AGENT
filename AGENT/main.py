@@ -177,7 +177,7 @@ def _run_full_pipeline(user_input: str) -> ProjectContext:
     return _run_pipeline_from_requirement(user_input, requirement)
 
 
-@app.get("/")
+@app.get("/health")
 def health_check():
     return {"status": "AgentForge API is running"}
 def run_streaming_pipeline(user_input: str, requirement: dict):
