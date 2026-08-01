@@ -1008,7 +1008,7 @@ export default function App() {
                     <ShieldAlert size={14} className="text-[#F59E0B]" />
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Double failover layer configuration verified: Gemini model endpoint routes to <code className="bg-white/5 px-1 py-0.5 rounded">gemini-2.0-flash</code>. Groq endpoint runs fallback to <code className="bg-white/5 px-1 py-0.5 rounded">llama-3.1-8b-instant</code>.
+                    Cascading model routing verified: OpenAI Codex / <code className="bg-white/5 px-1 py-0.5 rounded text-sky-400">gpt-4o</code> configured as primary agent router. Automatic failover cascades to Gemini (<code className="bg-white/5 px-1 py-0.5 rounded">gemini-2.0-flash</code>) and rotates to Groq (<code className="bg-white/5 px-1 py-0.5 rounded">llama-3.1-8b-instant</code>) under heavy load.
                   </p>
                 </section>
               </div>
