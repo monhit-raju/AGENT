@@ -1,5 +1,8 @@
 # AgentForge
 
+> **Live Demo:** [https://agent-omega-tan.vercel.app/](https://agent-omega-tan.vercel.app/)  
+> **API Backend:** [https://agentforge-wgmg.onrender.com](https://agentforge-wgmg.onrender.com)
+
 AgentForge is a sophisticated, AI-powered prototyping platform and code generator that turns a plain-English idea into a fully functional, structured multi-agent system. It designs the agent roles, layouts execution workflows, validates schemas, generates backend FastAPI endpoints (complete with databases, tests, and security audits), compiles a modern React/Vite dashboard, and packages everything into a downloadable workspace ZIP.
 
 ---
@@ -308,6 +311,31 @@ Start the development server:
 npm run dev
 ```
 Open the application on `http://localhost:5173`. Go to the **Settings** tab in the sidebar and ensure the API Base URL is pointed to the backend service: `http://127.0.0.1:8000`.
+
+---
+
+## ☁️ Production Deployment
+
+AgentForge is built to be easily deployed on standard cloud hosting platforms.
+
+### 🌐 Live Demo
+* **Frontend Dashboard (Vercel):** [https://agent-omega-tan.vercel.app/](https://agent-omega-tan.vercel.app/)
+* **Backend API Server (Render):** [https://agentforge-wgmg.onrender.com](https://agentforge-wgmg.onrender.com)
+
+### 1. Deploying Backend on Render
+1. Connect your GitHub repository to [Render.com](https://render.com/).
+2. Create a new **Web Service**.
+3. Set the **Root Directory** to `AGENT` (case-sensitive).
+4. Configure the **Build Command** to `pip install -r requirements.txt`.
+5. Configure the **Start Command** to `uvicorn main:app --host 0.0.0.0 --port 10000`.
+6. Add environment variables for `GROQ_API_KEY`, `GEMINI_API_KEY`, and `OPENAI_API_KEY` (comma-separated rotation keys) or leave them blank to let users supply their own keys in the browser Settings.
+
+### 2. Deploying Frontend on Vercel
+1. Connect your GitHub repository to [Vercel.com](https://vercel.com/).
+2. Set the **Root Directory** to `agentforge-frontend`.
+3. Select `Vite` as the framework preset.
+4. Add the environment variable `VITE_API_BASE` pointing to your deployed Render service (e.g. `https://agentforge-wgmg.onrender.com`).
+5. Click **Deploy**.
 
 ---
 
