@@ -40,6 +40,7 @@ from typing import List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "table"))
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -93,12 +94,15 @@ async def add_api_keys_to_env(request, call_next):
     gemini_key = request.headers.get("x-gemini-key")
     groq_key = request.headers.get("x-groq-key")
     openrouter_key = request.headers.get("x-openrouter-key")
+    openai_key = request.headers.get("x-openai-key")
     if gemini_key:
         os.environ["GEMINI_API_KEY"] = gemini_key
     if groq_key:
         os.environ["GROQ_API_KEY"] = groq_key
     if openrouter_key:
         os.environ["OPENROUTER_API_KEY"] = openrouter_key
+    if openai_key:
+        os.environ["OPENAI_API_KEY"] = openai_key
     response = await call_next(request)
     return response
 
@@ -1013,3 +1017,6 @@ The user will ask a technical question about this system. Answer their question 
                     yield "data: " + json.dumps({"output": f"\n\n[ERROR] All LLM providers failed to stream explanation. Gemini: {gemini_errors} | Groq: {groq_errors} | OpenRouter: {or_errors}\n"}) + "\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+# Mount built frontend static files at / so that a single deploy serves both UI and API
+app.mount("/", StaticFiles(directory="static", html=True), name="static")

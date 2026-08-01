@@ -353,10 +353,13 @@ app = FastAPI(title="Generated Multi-Agent System")
 async def add_api_keys_to_env(request, call_next):
     gemini_key = request.headers.get("x-gemini-key")
     groq_key = request.headers.get("x-groq-key")
+    openai_key = request.headers.get("x-openai-key")
     if gemini_key:
         os.environ["GEMINI_API_KEY"] = gemini_key
     if groq_key:
         os.environ["GROQ_API_KEY"] = groq_key
+    if openai_key:
+        os.environ["OPENAI_API_KEY"] = openai_key
     response = await call_next(request)
     return response
 

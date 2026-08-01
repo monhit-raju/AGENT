@@ -11,6 +11,7 @@ import MonacoEditor from "@monaco-editor/react";
 import ClarificationPanel from "./components/ClarificationPanel.jsx";
 import SimulationCanvas from "./components/SimulationCanvas.jsx";
 import WorkflowSheet from "./components/WorkflowSheet.jsx";
+import SettingsPanel from "./components/SettingsPanel.jsx";
 import { 
   Terminal, Settings, Layers, Play, ArrowRight, Search, Bell, User, Plus, 
   Cpu, Coins, Activity, FileCode, Trash2, HelpCircle, Send, Database, 
@@ -1168,39 +1169,9 @@ export default function App() {
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
-              className="max-w-2xl mx-auto w-full glass-card rounded-3xl p-8 border border-white/5 space-y-6"
+              className="max-w-2xl mx-auto w-full"
             >
-              <div className="border-b border-white/5 pb-3">
-                <h2 className="text-lg font-bold text-white">System Settings</h2>
-                <p className="text-xs text-slate-500">Configure core endpoints and fallback API client limits.</p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">FastAPI Pipeline Engine Port</label>
-                  <input 
-                    type="text" 
-                    defaultValue="http://127.0.0.1:8000" 
-                    className="rounded-xl glass-input px-4 py-2.5 text-xs text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">Max Compilation Retry Cycles</label>
-                  <input 
-                    type="number" 
-                    defaultValue="3" 
-                    className="rounded-xl glass-input px-4 py-2.5 text-xs text-white"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-400">LLM Timeout Limit (Seconds)</label>
-                  <input 
-                    type="number" 
-                    defaultValue="30" 
-                    className="rounded-xl glass-input px-4 py-2.5 text-xs text-white"
-                  />
-                </div>
-              </div>
+              <SettingsPanel />
             </motion.main>
           )}
         </AnimatePresence>
