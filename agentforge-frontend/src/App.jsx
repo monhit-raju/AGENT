@@ -327,6 +327,23 @@ export default function App() {
   };
 
   const triggerBuild = async () => {
+    // Verify that at least one API key is defined in local settings
+    const geminiKey = localStorage.getItem("gemini_api_key");
+    const groqKey = localStorage.getItem("groq_api_key");
+    const openaiKey = localStorage.getItem("openai_api_key");
+    const agentKey = localStorage.getItem("agent_api_key");
+    if (!geminiKey && !groqKey && !openaiKey && !agentKey) {
+      const proceed = window.confirm(
+        "No API keys found in your browser Settings.\n\n" +
+        "If your backend server has default keys configured in its .env file, click OK to proceed.\n" +
+        "Otherwise, click Cancel and configure your keys in the Settings tab."
+      );
+      if (!proceed) {
+        setActiveTab("settings");
+        return;
+      }
+    }
+
     // Generate prompt input from features and sliders
     const promptDescription = `
       Project Name: ${projectName || "Unnamed system"}
@@ -372,7 +389,12 @@ export default function App() {
         }
       }
     } catch (err) {
-      setErrorMsg(err.message || "Compilation failed.");
+      let msg = err.message || "Compilation failed.";
+      const lowMsg = msg.toLowerCase();
+      if (lowMsg.includes("api key") || lowMsg.includes("api_key") || lowMsg.includes("unauthorized") || lowMsg.includes("401") || lowMsg.includes("credential")) {
+        msg = "Compilation failed: API keys are missing or invalid. Please enter your API key in the Settings tab.";
+      }
+      setErrorMsg(msg);
       setStatus("error");
     }
   };
@@ -1207,7 +1229,9 @@ export default function App() {
             </div>
 
             {/* Bottom tab views */}
-            <div className="min-h-[140px] max-h-[220px] overflow-y-auto rounded-2xl bg-slate-950/60 border border-white/5 p-4 text-xs font-mono text-slate-400">
+            <div className={`rounded-2xl bg-slate-950/60 border border-white/5 p-4 text-xs font-mono text-slate-400 ${
+              consoleTab === "preview" ? "h-[450px]" : "min-h-[140px] max-h-[220px] overflow-y-auto"
+            }`}>
               {consoleTab === "logs" && (
                 <pre className="whitespace-pre-wrap leading-relaxed">{output || "No build outputs yet."}</pre>
               )}
@@ -1217,18 +1241,18 @@ export default function App() {
                 </pre>
               )}
               {consoleTab === "preview" && (
-                <div className="h-full flex flex-col gap-4 items-center justify-center p-6 text-center">
-                  <span className="text-slate-400">Generated custom dashboard index.html is available inside your workspace.</span>
-                  {files["static/index.html"] && (
-                    <button
-                      onClick={() => {
-                        const win = window.open();
-                        if (win) win.document.write(files["static/index.html"]);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-[#6C63FF]/20 border border-[#6C63FF]/30 text-[#6C63FF] hover:bg-[#6C63FF]/30 transition-all font-sans text-xs font-bold"
-                    >
-                      Launch Live Web App Preview
-                    </button>
+                <div className="h-full w-full flex flex-col gap-3">
+                  {files["static/index.html"] || files["index.html"] ? (
+                    <iframe
+                      srcDoc={files["static/index.html"] || files["index.html"]}
+                      title="Live Client Preview"
+                      className="w-full h-full border-0 rounded-2xl bg-white"
+                      sandbox="allow-scripts"
+                    />
+                  ) : (
+                    <div className="h-full flex flex-col gap-4 items-center justify-center p-6 text-center">
+                      <span className="text-slate-400">No static/index.html or index.html found in the generated workspace files.</span>
+                    </div>
                   )}
                 </div>
               )}
